@@ -1,0 +1,6 @@
+# Nakadachi Archive AI uses only the Python standard library.
+#
+# Optional system tools, if installed on macOS:
+# - pdftotext: PDF text extraction
+# - tesseract: OCR
+# - ffprobe: video/audio metadata

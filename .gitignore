@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+.DS_Store
+
+*.sqlite-wal
+*.sqlite-shm
+
+# Runtime outputs are written outside this project by default:
+# ~/NakadachiArchiveAI/output/
+# ~/NakadachiArchiveAI/logs/
+# ~/NakadachiArchiveAI/assistant_output/
+# ~/NakadachiArchiveAI/knowledge_engine/
+# ~/NakadachiArchiveAI/state/

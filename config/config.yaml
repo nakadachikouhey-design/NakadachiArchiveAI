@@ -1,0 +1,61 @@
+# Nakadachi Archive AI configuration
+#
+# Add folders to scan below. The app reads metadata only.
+# It never moves, deletes, renames, or edits archive files.
+
+scan_paths:
+  - /Volumes/Trancend
+  - /Users/phikohey/Documents
+  - /Users/phikohey/Library/CloudStorage/GoogleDrive-*
+  - /Users/phikohey/Google Drive
+
+exclude_paths:
+  - .git
+  - .DS_Store
+  - node_modules
+  - __pycache__
+  - .Trash
+  - .Trashes
+  - .Spotlight-V100
+  - .fseventsd
+  - .TemporaryItems
+  - Final Cut Backups.localized
+  - /Users/phikohey/Documents/AI・自動化研究所/NakadachiArchiveAI
+  - ~/NakadachiArchiveAI/output
+  - ~/NakadachiArchiveAI/logs
+  - ~/NakadachiArchiveAI/assistant_output
+  - ~/NakadachiArchiveAI/knowledge_engine
+  - ~/NakadachiArchiveAI/state
+
+output_dir: ~/NakadachiArchiveAI/output
+log_dir: ~/NakadachiArchiveAI/logs
+
+# Leave blank for no depth limit.
+max_depth:
+
+# Leave blank to include all extensions.
+# Example:
+# allowed_extensions:
+#   - .pdf
+#   - .jpg
+#   - .jpeg
+#   - .png
+#   - .mov
+#   - .mp4
+#   - .docx
+#   - .xlsx
+allowed_extensions:
+
+# Knowledge-base features. All are read-only.
+duplicate_detection: true
+full_hash_max_mb: 64
+partial_hash_bytes: 1048576
+extract_text: true
+enable_ocr: true
+ocr_max_file_mb: 50
+text_excerpt_chars: 4000
+commit_every: 1000
+
+# Automatic refresh interval for LaunchAgent/auto-update mode.
+# 21600 seconds = 6 hours.
+auto_update_interval_seconds: 21600

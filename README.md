@@ -17,6 +17,9 @@ NakadachiArchiveAI/
 │   ├── run_archive.sh
 │   ├── run_assistant.sh
 │   ├── run_auto_update.sh
+│   ├── run_executive_agent.sh
+│   ├── run_kio_mcp.sh
+│   ├── install_kio_plugin.py
 │   ├── install_launch_agent.sh
 │   ├── run_knowledge_engine.sh
 │   └── run_full_update.sh
@@ -28,6 +31,8 @@ NakadachiArchiveAI/
     ├── exporter.py
     ├── extractors.py
     ├── knowledge_engine.py
+    ├── kio_executive_agent.py
+    ├── kio_mcp_server.py
     ├── scan_archive.py
     └── search_archive.py
 ```
@@ -184,16 +189,47 @@ The system works with Python standard library only. Optional tools improve extra
 - `mdls`: macOS metadata fallback
 ## KIO Executive Agent
 
-`kio_executive_agent.py` connects the read-only Knowledge Archive index with KPS operating rules. It creates a private case ledger, separates evidence-backed facts from inference, tracks due dates and decisions, performs only allowlisted local checks, and returns a brief containing only the decision that must be made by 中立公平.
+`kio_executive_agent.py` connects the read-only Knowledge Archive index with KPS operating rules. It stores cases, decisions, deadlines, and action results in KPS's Git-ignored private runtime ledger. Search results remain unverified candidates until a verifier records the source check; only then are they promoted to facts.
 
 ```bash
 ./scripts/run_executive_agent.sh validate --kps-root ~/Documents/kio-project-system
 ./scripts/run_executive_agent.sh run "大阪フリンジの次の優先作業を決める" \
   --project osaka_fringe --project-id PRJ-001 --due 2026-08-05 --execute-safe
 ./scripts/run_executive_agent.sh status
+./scripts/run_executive_agent.sh verify-evidence CASE_ID EVD-01 \
+  --fact "当該企画は2026年7月30日に承認された" \
+  --reason "Google Driveの正本と承認状態を確認" --verifier "中立公平"
 ./scripts/run_executive_agent.sh decision CASE_ID "推奨案で進める" \
   --reason "根拠資料と期限を比較した結果" --review-date 2026-09-01
 ./scripts/run_executive_agent.sh complete CASE_ID "成果物と検証記録を完成"
 ```
 
-Runtime cases and briefs are stored under `~/NakadachiArchiveAI/executive_state` by default and are not committed to the public repository. The agent never sends messages, publishes, deletes, contracts, or performs other external or irreversible actions without an explicit decision.
+Runtime cases and briefs are stored under `<kps-root>/.kps-runtime/executive-agent` by default. KPS ignores this directory, so private case text and evidence paths are not committed to the public repository. The agent never sends messages, publishes, contracts, pays, deletes, or changes access without an explicit final decision.
+
+Global runtime options work both before and after the subcommand. For example, this is valid:
+
+```bash
+./scripts/run_executive_agent.sh validate --kps-root ~/Documents/kio-project-system
+```
+
+### ChatGPT desktop / Codex connection
+
+The repository includes a local MCP server and a plugin. Install it from the checked-out repository on the Mac that holds the local Knowledge Archive index:
+
+```bash
+python3 scripts/install_kio_plugin.py --kps-root /absolute/path/to/kio-project-system
+```
+
+The installer registers the local MCP in `~/.codex/config.toml` and makes **KIO Executive Agent** available in the personal plugin marketplace. Restart ChatGPT or Codex and start a new chat. If the client shows a plugin install control, install KIO Executive Agent there. The connection exposes tools for case creation, status, evidence verification, decisions, allowlisted actions, action-result writeback, and completion.
+
+The local STDIO MCP connection is available to the ChatGPT desktop app, Codex app, CLI, and IDE on the same Mac. ChatGPT on the web cannot directly access the Mac's local MCP process; hosted web use requires a separately deployed remote MCP server with authentication.
+
+### Allowlisted local actions
+
+- `validate-kps`
+- `refresh-archive-index`
+- `build-knowledge-engine`
+
+The latter two run only when explicitly requested through the `action` command or MCP tool. Case completion requires at least one verified evidence item and no failed or blocked actions.
+
+Work performed through another approved ChatGPT connector can be written back with `record-action` / `kio_record_action_result`. An action with an external effect is rejected unless its record references an accepted Decision ID.

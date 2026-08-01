@@ -1,0 +1,23 @@
+{
+  "name": "kio-executive-agent",
+  "version": "0.2.0",
+  "description": "Knowledge Archive evidence and KPS case, decision, deadline, and safe-action management.",
+  "author": {
+    "name": "KIO"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "KIO Executive Agent",
+    "shortDescription": "Knowledge ArchiveとKPSで案件を前進させます。",
+    "longDescription": "根拠候補を取得・検証し、KPSで案件、判断、期限、安全な作業を管理します。対外・不可逆な作業は中立公平の最終判断として提示します。",
+    "developerName": "KIO",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Knowledge Archiveを根拠に、この案件をKPSで開始して。",
+      "期限が近いKIO案件と、私に残る最終判断を教えて。",
+      "このCaseの根拠と実行結果を確認して完了条件を判定して。"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

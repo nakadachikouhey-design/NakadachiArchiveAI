@@ -182,3 +182,18 @@ The system works with Python standard library only. Optional tools improve extra
 - `tesseract`: OCR
 - `ffprobe`: video/audio metadata
 - `mdls`: macOS metadata fallback
+## KIO Executive Agent
+
+`kio_executive_agent.py` connects the read-only Knowledge Archive index with KPS operating rules. It creates a private case ledger, separates evidence-backed facts from inference, tracks due dates and decisions, performs only allowlisted local checks, and returns a brief containing only the decision that must be made by 中立公平.
+
+```bash
+./scripts/run_executive_agent.sh validate --kps-root ~/Documents/kio-project-system
+./scripts/run_executive_agent.sh run "大阪フリンジの次の優先作業を決める" \
+  --project osaka_fringe --project-id PRJ-001 --due 2026-08-05 --execute-safe
+./scripts/run_executive_agent.sh status
+./scripts/run_executive_agent.sh decision CASE_ID "推奨案で進める" \
+  --reason "根拠資料と期限を比較した結果" --review-date 2026-09-01
+./scripts/run_executive_agent.sh complete CASE_ID "成果物と検証記録を完成"
+```
+
+Runtime cases and briefs are stored under `~/NakadachiArchiveAI/executive_state` by default and are not committed to the public repository. The agent never sends messages, publishes, deletes, contracts, or performs other external or irreversible actions without an explicit decision.

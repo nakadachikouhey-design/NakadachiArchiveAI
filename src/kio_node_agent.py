@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+STATE_DIR = Path(os.path.expanduser("~/NakadachiArchiveAI/agent_state"))
+OWNER_LOGIN = "nakadachikouhey-design"
+REPO = "nakadachikouhey-design/NakadachiArchiveAI"
+TITLE_PREFIX = "[KIO-AGENT]"
+
+ACTIONS = {
+    "full_update": ["scripts/run_full_update.sh"],
+    "knowledge_update": ["scripts/run_knowledge_engine.sh"],
+    "archive_update": ["scripts/run_archive.sh"],
+    "assistant_build": ["scripts/run_assistant.sh", "build-packs", "--task", "all"],
+}
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def run(cmd: list[str], cwd: Path = PROJECT_DIR) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=False)
+
+
+def gh_available() -> bool:
+    return run(["which", "gh"], cwd=Path.home()).returncode == 0
+
+
+def git_status() -> dict[str, Any]:
+    branch = run(["git", "branch", "--show-current"]).stdout.strip()
+    status = run(["git", "status", "--porcelain"]).stdout.strip().splitlines()
+    remote = run(["git", "remote", "get-url", "origin"]).stdout.strip()
+    return {"branch": branch, "clean": not status, "changes": status[:50], "remote": remote}
+
+
+def github_sync() -> dict[str, Any]:
+    status = git_status()
+    fetch = run(["git", "fetch", "origin", "--prune"])
+    result: dict[str, Any] = {
+        "action": "github_sync",
+        "started_at": now_iso(),
+        "pre_status": status,
+        "fetch_returncode": fetch.returncode,
+        "fetch_stderr": fetch.stderr.strip()[-4000:],
+    }
+    if fetch.returncode != 0:
+        result["status"] = "failed"
+        return result
+    if not status["clean"]:
+        result["status"] = "skipped_dirty_worktree"
+        return result
+    pull = run(["git", "pull", "--ff-only"])
+    result.update({
+        "status": "ok" if pull.returncode == 0 else "failed",
+        "pull_returncode": pull.returncode,
+        "pull_stdout": pull.stdout.strip()[-4000:],
+        "pull_stderr": pull.stderr.strip()[-4000:],
+        "finished_at": now_iso(),
+    })
+    return result
+
+
+def repo_status() -> dict[str, Any]:
+    status = git_status()
+    status.update({"action": "repo_status", "status": "ok", "checked_at": now_iso()})
+    return status
+
+
+def execute_action(action: str) -> dict[str, Any]:
+    if action == "repo_status":
+        return repo_status()
+    if action == "github_sync":
+        return github_sync()
+    cmd = ACTIONS.get(action)
+    if not cmd:
+        return {"action": action, "status": "rejected", "message": "Action is not allowlisted.", "finished_at": now_iso()}
+    started = now_iso()
+    completed = run([str(PROJECT_DIR / cmd[0]), *cmd[1:]])
+    return {
+        "action": action,
+        "status": "ok" if completed.returncode == 0 else "failed",
+        "returncode": completed.returncode,
+        "started_at": started,
+        "finished_at": now_iso(),
+        "stdout_tail": completed.stdout.splitlines()[-40:],
+        "stderr_tail": completed.stderr.splitlines()[-40:],
+    }
+
+
+def list_agent_issues() -> list[dict[str, Any]]:
+    query = [
+        "gh", "issue", "list", "--repo", REPO, "--state", "open",
+        "--search", f'"{TITLE_PREFIX}" in:title', "--limit", "20",
+        "--json", "number,title,body,author,url",
+    ]
+    completed = run(query)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "gh issue list failed")
+    return json.loads(completed.stdout or "[]")
+
+
+def parse_task(issue: dict[str, Any]) -> dict[str, Any] | None:
+    author = ((issue.get("author") or {}).get("login") or "").strip()
+    if author != OWNER_LOGIN:
+        return None
+    body = (issue.get("body") or "").strip()
+    try:
+        task = json.loads(body)
+    except json.JSONDecodeError:
+        return {"action": "__invalid_json__"}
+    if not isinstance(task, dict):
+        return {"action": "__invalid_json__"}
+    return task
+
+
+def comment_and_close(number: int, result: dict[str, Any]) -> None:
+    body = "KIO local node result\n\n```json\n" + json.dumps(result, ensure_ascii=False, indent=2) + "\n```"
+    comment = run(["gh", "issue", "comment", str(number), "--repo", REPO, "--body", body])
+    if comment.returncode != 0:
+        raise RuntimeError(comment.stderr.strip() or "gh issue comment failed")
+    if result.get("status") in {"ok", "rejected"}:
+        close = run(["gh", "issue", "close", str(number), "--repo", REPO])
+        if close.returncode != 0:
+            raise RuntimeError(close.stderr.strip() or "gh issue close failed")
+
+
+def cycle() -> dict[str, Any]:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    heartbeat: dict[str, Any] = {
+        "node": "KIO-Mac-mini",
+        "checked_at": now_iso(),
+        "project_dir": str(PROJECT_DIR),
+        "repo": REPO,
+        "gh_available": gh_available(),
+        "processed": [],
+        "warnings": [],
+    }
+    if not heartbeat["gh_available"]:
+        heartbeat["warnings"].append("GitHub CLI (gh) is unavailable; local knowledge refresh remains available.")
+        write_heartbeat(heartbeat)
+        return heartbeat
+
+    auth = run(["gh", "auth", "status"], cwd=Path.home())
+    if auth.returncode != 0:
+        heartbeat["warnings"].append("gh is installed but not authenticated.")
+        write_heartbeat(heartbeat)
+        return heartbeat
+
+    try:
+        issues = list_agent_issues()
+    except Exception as exc:
+        heartbeat["warnings"].append(str(exc))
+        write_heartbeat(heartbeat)
+        return heartbeat
+
+    for issue in issues:
+        task = parse_task(issue)
+        if task is None:
+            continue
+        action = str(task.get("action", "")).strip()
+        if action == "__invalid_json__" or not action:
+            result = {"status": "rejected", "message": "Issue body must be a JSON object with an action field."}
+        else:
+            result = execute_action(action)
+        result["issue_number"] = issue["number"]
+        heartbeat["processed"].append(result)
+        try:
+            comment_and_close(int(issue["number"]), result)
+        except Exception as exc:
+            heartbeat["warnings"].append(f"Issue #{issue['number']}: {exc}")
+
+    write_heartbeat(heartbeat)
+    return heartbeat
+
+
+def write_heartbeat(data: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path = STATE_DIR / "heartbeat.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="KIO always-on local node controller.")
+    parser.add_argument("command", choices=["cycle", "status", "run"])
+    parser.add_argument("action", nargs="?")
+    args = parser.parse_args()
+
+    if args.command == "cycle":
+        print(json.dumps(cycle(), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "status":
+        heartbeat = STATE_DIR / "heartbeat.json"
+        if heartbeat.exists():
+            print(heartbeat.read_text(encoding="utf-8"))
+        else:
+            print(json.dumps({"status": "not_started", "state_dir": str(STATE_DIR)}, ensure_ascii=False, indent=2))
+        return 0
+    if not args.action:
+        parser.error("run requires an action")
+    result = execute_action(args.action)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("status") in {"ok", "rejected"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

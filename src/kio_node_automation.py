@@ -15,7 +15,11 @@ import scan_archive
 
 RUNTIME_DIR = Path(os.path.expanduser('~/NakadachiArchiveAI'))
 STATE_DIR = RUNTIME_DIR / 'agent_state'
-DEFAULT_REPO = 'nakadachikouhey-design/NakadachiArchiveAI'
+DEFAULT_REPOS = [
+    'nakadachikouhey-design/NakadachiArchiveAI',
+    'nakadachikouhey-design/osaka-fringe-platform',
+    'nakadachikouhey-design/kio-project-system',
+]
 
 
 def now_iso() -> str:
@@ -170,9 +174,13 @@ def file_watch_cycle(executor: Callable[[str], dict[str, Any]]) -> dict[str, Any
 
 
 def monitored_repos() -> list[str]:
-    raw = os.environ.get('KIO_MONITORED_REPOS', DEFAULT_REPO)
-    repos = [item.strip() for item in raw.split(',') if item.strip()]
-    return repos or [DEFAULT_REPO]
+    raw = os.environ.get('KIO_MONITORED_REPOS', '')
+    configured = [item.strip() for item in raw.split(',') if item.strip()]
+    repos: list[str] = []
+    for repo in [*DEFAULT_REPOS, *configured]:
+        if repo not in repos:
+            repos.append(repo)
+    return repos
 
 
 def list_prs(repo: str) -> list[dict[str, Any]]:
@@ -304,6 +312,7 @@ def pr_monitor_cycle() -> dict[str, Any]:
     return {
         'status': 'ok' if not errors else 'partial',
         'checked_at': current['checked_at'],
+        'monitored_repos': monitored_repos(),
         'open_pr_count': len(current['prs']),
         'changes': changes,
         'retries': retries,

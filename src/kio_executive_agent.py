@@ -395,7 +395,7 @@ def complete_case(state_dir: Path, case_id: str, outcome: str) -> dict[str, Any]
     if not any(item.get("verification_status") == "verified" for item in case.get("evidence_candidates", [])):
         return {"ok": False, "error": "At least one evidence candidate must be verified before completion."}
     case.update(status="completed", outcome=outcome, updated_at=timestamp(), decision_required="")
-    case["deadline_status"] = deadline_status(case.get("due_date", ""))
+    case["deadline_status"] = deadline_status(case.get("due_date", ""), case.get("status", ""))
     save_case(state_dir, case)
     return {"ok": True, "case_id": case_id, "status": "completed", "outcome": outcome}
 

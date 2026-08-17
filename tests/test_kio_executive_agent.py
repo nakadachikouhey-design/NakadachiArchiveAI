@@ -100,6 +100,14 @@ class ExecutiveAgentTests(unittest.TestCase):
             agent.save_case(state, case)
             self.assertFalse(agent.complete_case(state, case["case_id"], "Done")["ok"])
 
+            case["due_date"] = "2000-01-01"
+            case["evidence_candidates"][0]["verification_status"] = "verified"
+            agent.save_case(state, case)
+            result = agent.complete_case(state, case["case_id"], "Done")
+            self.assertTrue(result["ok"])
+            completed = agent.load_case(state, case["case_id"])
+            self.assertEqual(completed["deadline_status"], "closed")
+
     def test_case_id_blocks_path_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)

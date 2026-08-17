@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import assistant_ai
+from private_storage import ensure_private_directory, harden_private_tree, secure_file, set_private_umask, write_private_text
 import search_archive
 
 
@@ -23,6 +24,7 @@ SAFE_ACTIONS = {"validate-kps", "refresh-archive-index", "build-knowledge-engine
 
 
 def main(argv: list[str] | None = None) -> int:
+    set_private_umask()
     parser = argparse.ArgumentParser(
         description="KIO Executive Agent: verified evidence, KPS case control, safe execution, and final decisions."
     )
@@ -255,8 +257,16 @@ def execute_allowlisted_action(action: str, kps_root: Path, archive_root: Path |
     except OSError as exc:
         return {"status": "failed", "result": f"Action could not start: {exc}", "executed_at": timestamp()}
     output = (completed.stdout + completed.stderr).strip()
+    action_status = "completed" if completed.returncode == 0 else "failed"
+    if action == "refresh-archive-index" and completed.returncode == 0:
+        try:
+            refresh_result = json.loads(completed.stdout.strip().splitlines()[-1])
+        except (json.JSONDecodeError, IndexError):
+            refresh_result = {}
+        if refresh_result.get("status") == "skipped_locked":
+            action_status = "blocked"
     return {
-        "status": "completed" if completed.returncode == 0 else "failed",
+        "status": action_status,
         "result": output[-2000:],
         "exit_code": completed.returncode,
         "executed_at": timestamp(),
@@ -433,8 +443,9 @@ def save_case(state_dir: Path, case: dict[str, Any]) -> None:
     case_id = str(case.get("case_id", ""))
     if not valid_case_id(case_id):
         raise ValueError(f"Invalid case ID: {case_id}")
+    harden_runtime_ledger(state_dir)
     directory = case_dir(state_dir)
-    directory.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(directory)
     target = directory / f"{case_id}.json"
     atomic_write(target, json.dumps(case, ensure_ascii=False, indent=2) + "\n")
     write_brief(state_dir, case)
@@ -451,13 +462,13 @@ def load_case(state_dir: Path, case_id: str) -> dict[str, Any] | None:
 
 def write_brief(state_dir: Path, case: dict[str, Any]) -> None:
     path = brief_path(state_dir, case["case_id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(path.parent)
     atomic_write(path, case_to_markdown(case))
 
 
 def write_decisions(state_dir: Path, case: dict[str, Any]) -> None:
     directory = state_dir / "decisions"
-    directory.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(directory)
     for decision in case.get("decisions", []):
         target = directory / f"{decision['decision_id']}.json"
         atomic_write(target, json.dumps({"case_id": case["case_id"], **decision}, ensure_ascii=False, indent=2) + "\n")
@@ -542,9 +553,9 @@ def brief_path(state_dir: Path, case_id: str) -> Path:
 
 def ensure_state_dir(state_dir: Path) -> bool:
     try:
-        state_dir.mkdir(parents=True, exist_ok=True)
+        harden_runtime_ledger(state_dir)
         probe = state_dir / ".write-test"
-        probe.write_text("ok", encoding="utf-8")
+        write_private_text(probe, "ok")
         probe.unlink()
         return True
     except OSError:
@@ -585,10 +596,18 @@ def timestamp() -> str:
 
 
 def atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(path.parent)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
+    write_private_text(temporary, text)
     temporary.replace(path)
+    secure_file(path)
+
+
+def harden_runtime_ledger(state_dir: Path) -> None:
+    runtime_root = next((path for path in (state_dir, *state_dir.parents) if path.name == ".kps-runtime"), state_dir)
+    ensure_private_directory(runtime_root)
+    ensure_private_directory(state_dir)
+    harden_private_tree(state_dir)
 
 
 def file_sha256(path: Path) -> str:

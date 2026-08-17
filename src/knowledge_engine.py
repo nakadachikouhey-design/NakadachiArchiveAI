@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import assistant_ai
+from private_storage import ensure_private_directory, harden_private_tree, secure_file, set_private_umask, write_private_text
 import search_archive
 
 
@@ -16,6 +17,7 @@ DEFAULT_OUTPUT_DIR = "~/NakadachiArchiveAI/knowledge_engine"
 
 
 def main() -> int:
+    set_private_umask()
     parser = argparse.ArgumentParser(description="Build the Nakadachi Archive AI Knowledge Engine.")
     parser.add_argument("--db", default=search_archive.DEFAULT_DB)
     parser.add_argument("--profiles", default=assistant_ai.DEFAULT_PROFILES)
@@ -79,9 +81,10 @@ def build_knowledge_engine(
     run_dir = output_dir / f"run_{timestamp}"
     maps_dir = run_dir / "project_maps"
     briefs_dir = run_dir / "task_briefs"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    maps_dir.mkdir(parents=True, exist_ok=True)
-    briefs_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(output_dir, harden_existing=True)
+    ensure_private_directory(run_dir)
+    ensure_private_directory(maps_dir)
+    ensure_private_directory(briefs_dir)
 
     stats = build_status(db, db_path, profiles)
     project_maps = [
@@ -105,6 +108,8 @@ def build_knowledge_engine(
 
     sqlite_path = run_dir / "knowledge_engine.sqlite"
     write_engine_sqlite(sqlite_path, manifest, project_maps, graph)
+    secure_file(sqlite_path)
+    harden_private_tree(run_dir)
 
     return {
         "run_dir": str(run_dir),
@@ -678,11 +683,11 @@ def task_brief_markdown(project_map: dict[str, Any], brief: dict[str, Any]) -> s
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(dumps(value), encoding="utf-8")
+    write_private_text(path, dumps(value))
 
 
 def write_text(path: Path, value: str) -> None:
-    path.write_text(value, encoding="utf-8")
+    write_private_text(path, value)
 
 
 def dumps(value: Any) -> str:

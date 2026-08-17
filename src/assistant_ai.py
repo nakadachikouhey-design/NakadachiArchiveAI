@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from private_storage import ensure_private_directory, set_private_umask, write_private_text
 import search_archive
 
 
@@ -52,6 +53,7 @@ TASKS = {
 
 
 def main() -> int:
+    set_private_umask()
     parser = argparse.ArgumentParser(description="Nakadachi Archive AI assistant layer.")
     parser.add_argument("--db", default=search_archive.DEFAULT_DB)
     parser.add_argument("--profiles", default=DEFAULT_PROFILES)
@@ -112,7 +114,7 @@ def main() -> int:
             render_or_save(pack, args.format, args.save, Path(args.output_dir).expanduser())
         elif args.command == "build-packs":
             output_dir = Path(args.output_dir).expanduser()
-            output_dir.mkdir(parents=True, exist_ok=True)
+            ensure_private_directory(output_dir, harden_existing=True)
             for profile in profiles:
                 pack = build_brief(db, profile, args.task, "", args.limit, db_path)
                 save_pack(pack, output_dir)
@@ -345,14 +347,14 @@ def render_or_save(pack: dict[str, Any], output_format: str, save: bool, output_
 
 
 def save_pack(pack: dict[str, Any], output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(output_dir, harden_existing=True)
     profile = pack.get("profile") or {}
     profile_id = profile.get("id", "request")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = output_dir / f"{profile_id}_{timestamp}.md"
-    path.write_text(pack_to_markdown(pack), encoding="utf-8")
+    write_private_text(path, pack_to_markdown(pack))
     json_path = path.with_suffix(".json")
-    json_path.write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_private_text(json_path, json.dumps(pack, ensure_ascii=False, indent=2))
     return path
 
 

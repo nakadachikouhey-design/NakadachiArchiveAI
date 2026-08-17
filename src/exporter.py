@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from private_storage import ensure_private_directory, harden_private_tree, secure_file, set_private_umask
+
 
 CSV_FIELDS = [
     "file_name",
@@ -63,10 +65,11 @@ LIST_FIELDS = {
 
 class ArchiveExporter:
     def __init__(self, output_dir: Path, started_at: datetime, config: dict[str, Any]) -> None:
+        set_private_umask()
         self.output_dir = output_dir
         self.started_at = started_at
         self.config = config
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_directory(self.output_dir, harden_existing=True)
 
         self.csv_path, self.json_path, self.summary_path, self.sqlite_path = _output_paths(output_dir, started_at)
         self.duplicates_csv_path = self.csv_path.with_name(self.csv_path.stem.replace("archive_index", "duplicate_report") + ".csv")
@@ -84,14 +87,17 @@ class ArchiveExporter:
         self.ocr_status_counter: Counter[str] = Counter()
 
         self._csv_handle = self.csv_path.open("w", newline="", encoding="utf-8-sig")
+        secure_file(self.csv_path)
         self._csv_writer = csv.DictWriter(self._csv_handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
         self._csv_writer.writeheader()
 
         self._json_handle = self.json_path.open("w", encoding="utf-8")
+        secure_file(self.json_path)
         self._json_handle.write("[\n")
         self._first_json_record = True
 
         self._db = sqlite3.connect(self.sqlite_path)
+        secure_file(self.sqlite_path)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
         self._db.execute("PRAGMA temp_store=MEMORY")
@@ -150,6 +156,7 @@ class ArchiveExporter:
             ocr_status_counter=self.ocr_status_counter,
             sqlite_path=self.sqlite_path,
         )
+        harden_private_tree(self.output_dir)
 
         return {
             "csv": self.csv_path,

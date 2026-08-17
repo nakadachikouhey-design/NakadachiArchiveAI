@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -158,6 +160,39 @@ class ExecutiveAgentTests(unittest.TestCase):
             self.assertEqual(case["evidence_candidates"][0]["verification_status"], "candidate")
             self.assertNotIn("proposal.pdf", " ".join(case["facts"]))
             self.assertTrue((kps / ".kps-runtime" / "executive-agent" / "registry.json").is_file())
+
+    def test_private_runtime_permissions_are_enforced_with_public_umask(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / "kps" / ".kps-runtime" / "executive-agent"
+            previous_umask = os.umask(0o022)
+            try:
+                agent.save_case(state, make_case("KIO-TEST-006"))
+            finally:
+                os.umask(previous_umask)
+
+            self.assertEqual((state.parent.stat().st_mode & 0o777), 0o700)
+            for path in (state, *state.rglob("*")):
+                if path.is_symlink():
+                    continue
+                expected = 0o700 if path.is_dir() else 0o600
+                self.assertEqual(path.stat().st_mode & 0o777, expected, str(path))
+
+    def test_refresh_lock_is_blocked_not_completed(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='{"status":"skipped_locked","returncode":0}\n',
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_root = Path(temporary)
+            script = archive_root / "scripts" / "run_auto_update.sh"
+            script.parent.mkdir(parents=True)
+            script.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.object(agent.subprocess, "run", return_value=completed):
+                result = agent.execute_allowlisted_action("refresh-archive-index", archive_root, archive_root)
+        self.assertEqual(result["status"], "blocked")
 
 
 def make_case(case_id: str) -> dict:

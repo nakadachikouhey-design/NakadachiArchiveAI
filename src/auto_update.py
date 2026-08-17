@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import scan_archive
+from private_storage import ensure_private_directory, secure_file, set_private_umask, write_private_text
 
 
 DEFAULT_STATE_DIR = "~/NakadachiArchiveAI/state"
@@ -18,6 +19,7 @@ DEFAULT_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 def main() -> int:
+    set_private_umask()
     parser = argparse.ArgumentParser(description="Continuously refresh the Nakadachi Archive AI knowledge base.")
     parser.add_argument("--config", default=scan_archive.default_config_path())
     parser.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
@@ -71,7 +73,7 @@ def run_refresh(
     limit: int | None,
     dry_run: bool,
 ) -> dict[str, Any]:
-    state_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(state_dir, harden_existing=True)
     lock_path = state_dir / "auto_update.lock"
     if lock_path.exists():
         try:
@@ -92,9 +94,9 @@ def run_refresh(
         command.extend(["--limit", str(limit)])
 
     started_at = datetime.now().astimezone()
-    lock_path.write_text(
+    write_private_text(
+        lock_path,
         json.dumps({"pid": os.getpid(), "started_at": started_at.isoformat(timespec="seconds")}, ensure_ascii=False),
-        encoding="utf-8",
     )
     try:
         completed = subprocess.run(
@@ -114,7 +116,7 @@ def run_refresh(
             "stdout_tail": tail_lines(completed.stdout),
             "stderr_tail": tail_lines(completed.stderr),
         }
-        (state_dir / "last_run.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_private_text(state_dir / "last_run.json", json.dumps(result, ensure_ascii=False, indent=2))
         append_history(state_dir / "history.ndjson", result)
         return result
     finally:
@@ -177,6 +179,7 @@ def render_status(status: dict[str, Any], output_format: str) -> None:
 def append_history(path: Path, result: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(result, ensure_ascii=False) + "\n")
+    secure_file(path)
 
 
 def tail_lines(text: str, limit: int = 40) -> list[str]:

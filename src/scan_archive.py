@@ -13,6 +13,7 @@ from ai_classifier import classify_with_ai
 from classify_rules import classify_file
 from exporter import ArchiveExporter
 from extractors import compute_hashes, enrich_content_metadata
+from private_storage import ensure_private_directory, set_private_umask
 
 
 DEFAULT_CONFIG = {
@@ -34,6 +35,7 @@ DEFAULT_CONFIG = {
 
 
 def main() -> int:
+    set_private_umask()
     parser = argparse.ArgumentParser(description="Read-only archive catalog generator.")
     parser.add_argument("--config", default=default_config_path(), help="Path to config.yaml")
     parser.add_argument(
@@ -59,8 +61,8 @@ def main() -> int:
     log_dir = expand_path(config.get("log_dir") or DEFAULT_CONFIG["log_dir"])
 
     if args.init_user_dirs:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        log_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_directory(output_dir, harden_existing=True)
+        ensure_private_directory(log_dir, harden_existing=True)
         print(f"Created output folder: {output_dir}")
         print(f"Created log folder: {log_dir}")
         return 0
@@ -74,7 +76,7 @@ def main() -> int:
         dry_run(scan_roots, output_dir, log_dir, config, warnings, errors, args.limit)
         return 0
 
-    log_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(log_dir, harden_existing=True)
     setup_logging(log_dir)
     logging.info("Nakadachi Archive AI scan started")
     logging.info("Read-only mode: no archive files will be changed")

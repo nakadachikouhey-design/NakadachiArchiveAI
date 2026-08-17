@@ -19,6 +19,7 @@ exclude_paths:
   - .Spotlight-V100
   - .fseventsd
   - .TemporaryItems
+  - .DocumentRevisions-V100
   - Final Cut Backups.localized
   - /Users/phikohey/Documents/AI・自動化研究所/NakadachiArchiveAI
   - ~/NakadachiArchiveAI/output

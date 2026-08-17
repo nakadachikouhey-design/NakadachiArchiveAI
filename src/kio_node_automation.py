@@ -64,20 +64,24 @@ def retry_action(action: str, executor: Callable[[str], dict[str, Any]]) -> dict
     max_retries = max(1, int(os.environ.get('KIO_ACTION_MAX_RETRIES', '3')))
     delay = max(1, int(os.environ.get('KIO_RETRY_DELAY_SECONDS', '10')))
     attempts: list[dict[str, Any]] = []
+    last_result: dict[str, Any] = {}
     for attempt in range(1, max_retries + 1):
-        result = executor(action)
-        result['attempt'] = attempt
-        attempts.append(result)
-        if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree'}:
-            result['attempts'] = attempts
-            result['recovered_after_retry'] = attempt > 1 and result.get('status') == 'ok'
-            return result
+        raw_result = executor(action)
+        attempt_result = dict(raw_result)
+        attempt_result['attempt'] = attempt
+        attempts.append(attempt_result)
+        last_result = dict(attempt_result)
+        if attempt_result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree'}:
+            final_result = dict(last_result)
+            final_result['attempts'] = [dict(item) for item in attempts]
+            final_result['recovered_after_retry'] = attempt > 1 and attempt_result.get('status') == 'ok'
+            return final_result
         if attempt < max_retries:
             time.sleep(delay * attempt)
-    result = attempts[-1]
-    result['attempts'] = attempts
-    result['retries_exhausted'] = True
-    return result
+    final_result = dict(last_result)
+    final_result['attempts'] = [dict(item) for item in attempts]
+    final_result['retries_exhausted'] = True
+    return final_result
 
 
 def configured_scan_roots() -> tuple[list[Path], list[str], list[str]]:

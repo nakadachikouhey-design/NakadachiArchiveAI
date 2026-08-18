@@ -15,28 +15,30 @@ ENV_DIR="$HOME/.config/kio-node"
 ENV_PATH="$ENV_DIR/env"
 WRAPPER_PATH="$BIN_DIR/kio_local_node_cycle.sh"
 PLIST_PATH="$PLIST_DIR/com.kio.local-ai-node.plist"
+HYBRID_MIGRATION_MARKER="$STATE_DIR/hybrid_cloud_control_v1"
 
 mkdir -p "$BIN_DIR" "$LOG_DIR" "$STATE_DIR" "$PLIST_DIR" "$ENV_DIR"
 
 if [ ! -f "$ENV_PATH" ]; then
   /bin/cat > "$ENV_PATH" <<'ENV'
-# KIO Local AI Node v4 / Engineering Loop v2
+# KIO Local AI Node v5 / Hybrid Cloud Control
+# Cloud AI is the decision layer. The Mac mini monitors and executes allowlisted jobs.
 # Comma-separated GitHub repositories to monitor.
 KIO_MONITORED_REPOS="nakadachikouhey-design/NakadachiArchiveAI"
 
-# Local action retry policy.
+# Local action retry policy for explicitly requested allowlisted jobs.
 KIO_ACTION_MAX_RETRIES="3"
 KIO_RETRY_DELAY_SECONDS="10"
 
-# Re-run each failed GitHub Actions workflow at most once per run id.
-KIO_AUTO_RETRY_GITHUB_ACTIONS="1"
+# Hybrid default: observe CI locally, but do not mutate/re-run without explicit enablement.
+KIO_AUTO_RETRY_GITHUB_ACTIONS="0"
 
-# KIO Engineering Loop.
-KIO_ENGINEERING_LOOP_ENABLED="1"
-KIO_ENGINEERING_AUTO_REPAIR="1"
+# Hybrid default: autonomous engineering repair loop is OFF.
+# It may still be run explicitly through an allowlisted cloud-issued action.
+KIO_ENGINEERING_LOOP_ENABLED="0"
+KIO_ENGINEERING_AUTO_REPAIR="0"
 
-# v2: deterministic YELLOW failures may receive a constrained Codex repair PR.
-# Codex runs with workspace-write only. The outer node owns commit/push/PR and never auto-merges.
+# Deterministic code repair remains available only when Engineering Loop is explicitly enabled.
 KIO_ENGINEERING_CODE_REPAIR_ENABLED="1"
 KIO_ENGINEERING_MAX_CODE_REPAIRS_PER_CYCLE="1"
 KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
@@ -45,6 +47,15 @@ KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
 KIO_SLACK_WEBHOOK_URL=""
 ENV
   chmod 600 "$ENV_PATH"
+fi
+
+# One-time migration from the previous autonomous defaults to hybrid cloud control.
+# Preserve all unrelated settings, but turn autonomous mutating behaviors off once.
+if [ ! -f "$HYBRID_MIGRATION_MARKER" ]; then
+  /usr/bin/sed -i '' 's/^KIO_AUTO_RETRY_GITHUB_ACTIONS=.*/KIO_AUTO_RETRY_GITHUB_ACTIONS="0"/' "$ENV_PATH" || true
+  /usr/bin/sed -i '' 's/^KIO_ENGINEERING_LOOP_ENABLED=.*/KIO_ENGINEERING_LOOP_ENABLED="0"/' "$ENV_PATH" || true
+  /usr/bin/sed -i '' 's/^KIO_ENGINEERING_AUTO_REPAIR=.*/KIO_ENGINEERING_AUTO_REPAIR="0"/' "$ENV_PATH" || true
+  touch "$HYBRID_MIGRATION_MARKER"
 fi
 
 /bin/cat > "$WRAPPER_PATH" <<WRAPPER
@@ -76,7 +87,6 @@ acquire_lock() {
     exit 0
   fi
 
-  # A previous process died without cleanup. Remove only the stale lock and retry atomically.
   rm -rf "\$LOCK_DIR"
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
     echo "\$\$" > "\$LOCK_PID_FILE"
@@ -135,7 +145,8 @@ launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/com.kio.local-ai-node"
 
-echo "Installed KIO local AI node v4 / Engineering Loop v2: $PLIST_PATH"
+echo "Installed KIO local AI node v5 / Hybrid Cloud Control: $PLIST_PATH"
 echo "Cycle wrapper: $WRAPPER_PATH"
 echo "Runtime env: $ENV_PATH"
 echo "Heartbeat: $HOME/NakadachiArchiveAI/agent_state/heartbeat.json"
+echo "Autonomous CI retry / engineering repair defaults: disabled"

@@ -9,13 +9,14 @@ fi
 
 BIN_DIR="$HOME/NakadachiArchiveAI/bin"
 LOG_DIR="$HOME/NakadachiArchiveAI/logs"
+STATE_DIR="$HOME/NakadachiArchiveAI/agent_state"
 PLIST_DIR="$HOME/Library/LaunchAgents"
 ENV_DIR="$HOME/.config/kio-node"
 ENV_PATH="$ENV_DIR/env"
 WRAPPER_PATH="$BIN_DIR/kio_local_node_cycle.sh"
 PLIST_PATH="$PLIST_DIR/com.kio.local-ai-node.plist"
 
-mkdir -p "$BIN_DIR" "$LOG_DIR" "$PLIST_DIR" "$ENV_DIR"
+mkdir -p "$BIN_DIR" "$LOG_DIR" "$STATE_DIR" "$PLIST_DIR" "$ENV_DIR"
 
 if [ ! -f "$ENV_PATH" ]; then
   /bin/cat > "$ENV_PATH" <<'ENV'
@@ -55,8 +56,54 @@ if [ -f "$ENV_PATH" ]; then
   source "$ENV_PATH"
   set +a
 fi
+
+LOCK_DIR="$STATE_DIR/node_cycle.lock"
+LOCK_PID_FILE="\$LOCK_DIR/pid"
+
+acquire_lock() {
+  if mkdir "\$LOCK_DIR" 2>/dev/null; then
+    echo "\$\$" > "\$LOCK_PID_FILE"
+    return 0
+  fi
+
+  local existing_pid=""
+  if [ -f "\$LOCK_PID_FILE" ]; then
+    existing_pid="\$(cat "\$LOCK_PID_FILE" 2>/dev/null || true)"
+  fi
+
+  if [[ "\$existing_pid" == <-> ]] && kill -0 "\$existing_pid" 2>/dev/null; then
+    echo "KIO local node cycle already running (pid=\$existing_pid); skipping overlapping run."
+    exit 0
+  fi
+
+  # A previous process died without cleanup. Remove only the stale lock and retry atomically.
+  rm -rf "\$LOCK_DIR"
+  if mkdir "\$LOCK_DIR" 2>/dev/null; then
+    echo "\$\$" > "\$LOCK_PID_FILE"
+    return 0
+  fi
+
+  echo "KIO local node cycle lock could not be acquired; skipping run."
+  exit 0
+}
+
+cleanup_lock() {
+  if [ -f "\$LOCK_PID_FILE" ] && [ "\$(cat "\$LOCK_PID_FILE" 2>/dev/null || true)" = "\$\$" ]; then
+    rm -rf "\$LOCK_DIR"
+  fi
+}
+
+acquire_lock
+trap cleanup_lock EXIT INT TERM HUP
+
 cd "$PROJECT_DIR"
-exec "$PYTHON_BIN" -B src/kio_node_agent.py cycle
+set +e
+"$PYTHON_BIN" -B src/kio_node_agent.py cycle
+status=\$?
+set -e
+cleanup_lock
+trap - EXIT INT TERM HUP
+exit \$status
 WRAPPER
 chmod +x "$WRAPPER_PATH"
 

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import unittest
+from pathlib import Path
 
-from src import kio_json_safe
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'src'))
+
+import kio_json_safe
 
 
 class JsonSafeTests(unittest.TestCase):
@@ -15,11 +20,12 @@ class JsonSafeTests(unittest.TestCase):
         json.dumps(safe)
 
     def test_cuts_nested_processed_attempts_cycle(self) -> None:
-        heartbeat: dict[str, object] = {'processed': []}
+        processed: list[object] = []
+        heartbeat: dict[str, object] = {'processed': processed}
         result: dict[str, object] = {'status': 'ok', 'attempts': []}
-        attempt: dict[str, object] = {'attempt': 1, 'processed': heartbeat['processed']}
+        attempt: dict[str, object] = {'attempt': 1, 'processed': processed}
         result['attempts'] = [attempt]
-        heartbeat['processed'].append(result)  # type: ignore[union-attr]
+        processed.append(result)
 
         safe = kio_json_safe.make_json_safe(heartbeat)
         json.dumps(safe)

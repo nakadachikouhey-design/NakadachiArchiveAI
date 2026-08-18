@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import kio_engineering_loop as engineering
+import kio_json_safe
 import kio_node_automation as automation
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -132,11 +133,12 @@ def parse_task(issue: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def comment_and_close(number: int, result: dict[str, Any]) -> None:
-    body = 'KIO local node result\n\n```json\n' + json.dumps(result, ensure_ascii=False, indent=2) + '\n```'
+    safe_result = kio_json_safe.make_json_safe(result)
+    body = 'KIO local node result\n\n```json\n' + json.dumps(safe_result, ensure_ascii=False, indent=2) + '\n```'
     comment = run(['gh', 'issue', 'comment', str(number), '--repo', REPO, '--body', body])
     if comment.returncode != 0:
         raise RuntimeError(comment.stderr.strip() or 'gh issue comment failed')
-    if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'}:
+    if safe_result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'}:
         close = run(['gh', 'issue', 'close', str(number), '--repo', REPO])
         if close.returncode != 0:
             raise RuntimeError(close.stderr.strip() or 'gh issue close failed')
@@ -195,22 +197,23 @@ def cycle() -> dict[str, Any]:
         else:
             result = execute_action(action)
         result['issue_number'] = issue['number']
-        heartbeat['processed'].append(result)
-        if result.get('status') in {'ok', 'baseline_created'}:
+        safe_result = kio_json_safe.make_json_safe(result)
+        heartbeat['processed'].append(safe_result)
+        if safe_result.get('status') in {'ok', 'baseline_created'}:
             automation.slack_notify(f"✅ KIO Local Agent: {action} 完了 (Issue #{issue['number']})")
-        elif result.get('status') not in {'rejected', 'skipped_dirty_worktree'}:
+        elif safe_result.get('status') not in {'rejected', 'skipped_dirty_worktree'}:
             automation.slack_notify(f"🚨 KIO Local Agent: {action} 失敗/要確認 (Issue #{issue['number']})")
         try:
-            comment_and_close(int(issue['number']), result)
+            comment_and_close(int(issue['number']), safe_result)
         except Exception as exc:
             heartbeat['warnings'].append(f"Issue #{issue['number']}: {exc}")
 
     write_heartbeat(heartbeat)
-    return heartbeat
+    return kio_json_safe.make_json_safe(heartbeat)
 
 
 def write_heartbeat(data: dict[str, Any]) -> None:
-    automation.write_json(STATE_DIR / 'heartbeat.json', data)
+    automation.write_json(STATE_DIR / 'heartbeat.json', kio_json_safe.make_json_safe(data))
 
 
 def main() -> int:
@@ -237,7 +240,7 @@ def main() -> int:
         return 0
     if args.command == 'engineering-loop':
         result = engineering.engineering_loop_cycle(automation.monitored_repos(), automation.slack_notify)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(kio_json_safe.make_json_safe(result), ensure_ascii=False, indent=2))
         return 0 if result.get('status') in {'ok', 'partial', 'baseline_created', 'disabled'} else 1
     if args.command == 'notify-test':
         result = automation.slack_notify('✅ KIO Local Agent: Slack通知テストに成功しました。')
@@ -246,8 +249,9 @@ def main() -> int:
     if not args.action:
         parser.error('run requires an action')
     result = execute_action(args.action)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'} else 1
+    safe_result = kio_json_safe.make_json_safe(result)
+    print(json.dumps(safe_result, ensure_ascii=False, indent=2))
+    return 0 if safe_result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'} else 1
 
 
 if __name__ == '__main__':

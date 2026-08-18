@@ -19,7 +19,7 @@ mkdir -p "$BIN_DIR" "$LOG_DIR" "$PLIST_DIR" "$ENV_DIR"
 
 if [ ! -f "$ENV_PATH" ]; then
   /bin/cat > "$ENV_PATH" <<'ENV'
-# KIO Local AI Node v3
+# KIO Local AI Node v4 / Engineering Loop v2
 # Comma-separated GitHub repositories to monitor.
 KIO_MONITORED_REPOS="nakadachikouhey-design/NakadachiArchiveAI"
 
@@ -30,11 +30,15 @@ KIO_RETRY_DELAY_SECONDS="10"
 # Re-run each failed GitHub Actions workflow at most once per run id.
 KIO_AUTO_RETRY_GITHUB_ACTIONS="1"
 
-# KIO Engineering Loop: diagnose every new failed workflow.
-# GREEN transient failures may receive one bounded rerun.
-# YELLOW/RED failures are escalated; security/publication gates are never weakened.
+# KIO Engineering Loop.
 KIO_ENGINEERING_LOOP_ENABLED="1"
 KIO_ENGINEERING_AUTO_REPAIR="1"
+
+# v2: deterministic YELLOW failures may receive a constrained Codex repair PR.
+# Codex runs with workspace-write only. The outer node owns commit/push/PR and never auto-merges.
+KIO_ENGINEERING_CODE_REPAIR_ENABLED="1"
+KIO_ENGINEERING_MAX_CODE_REPAIRS_PER_CYCLE="1"
+KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
 
 # Slack Incoming Webhook. Leave blank until configured.
 KIO_SLACK_WEBHOOK_URL=""
@@ -84,7 +88,7 @@ launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/com.kio.local-ai-node"
 
-echo "Installed KIO local AI node v3: $PLIST_PATH"
+echo "Installed KIO local AI node v4 / Engineering Loop v2: $PLIST_PATH"
 echo "Cycle wrapper: $WRAPPER_PATH"
 echo "Runtime env: $ENV_PATH"
 echo "Heartbeat: $HOME/NakadachiArchiveAI/agent_state/heartbeat.json"

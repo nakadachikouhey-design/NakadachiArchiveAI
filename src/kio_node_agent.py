@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import kio_engineering_loop as engineering
 import kio_node_automation as automation
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -85,6 +86,8 @@ def execute_action_once(action: str) -> dict[str, Any]:
         return repo_status()
     if action == 'github_sync':
         return github_sync()
+    if action == 'engineering_loop':
+        return engineering.engineering_loop_cycle(automation.monitored_repos(), automation.slack_notify)
     cmd = ACTIONS.get(action)
     if not cmd:
         return {'action': action, 'status': 'rejected', 'message': 'Action is not allowlisted.', 'finished_at': now_iso()}
@@ -133,7 +136,7 @@ def comment_and_close(number: int, result: dict[str, Any]) -> None:
     comment = run(['gh', 'issue', 'comment', str(number), '--repo', REPO, '--body', body])
     if comment.returncode != 0:
         raise RuntimeError(comment.stderr.strip() or 'gh issue comment failed')
-    if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree'}:
+    if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'}:
         close = run(['gh', 'issue', 'close', str(number), '--repo', REPO])
         if close.returncode != 0:
             raise RuntimeError(close.stderr.strip() or 'gh issue close failed')
@@ -151,17 +154,29 @@ def cycle() -> dict[str, Any]:
         'gh_authenticated': gh_ready,
         'processed': [],
         'automation': automation.automation_cycle(execute_action_once, gh_ready),
+        'engineering_loop': {'status': 'pending'},
         'warnings': [],
     }
 
     if not heartbeat['gh_available']:
+        heartbeat['engineering_loop'] = {'status': 'skipped', 'reason': 'GitHub CLI unavailable'}
         heartbeat['warnings'].append('GitHub CLI (gh) is unavailable; GitHub/PR monitoring is disabled.')
         write_heartbeat(heartbeat)
         return heartbeat
     if not gh_ready:
+        heartbeat['engineering_loop'] = {'status': 'skipped', 'reason': 'GitHub CLI unauthenticated'}
         heartbeat['warnings'].append('gh is installed but not authenticated.')
         write_heartbeat(heartbeat)
         return heartbeat
+
+    try:
+        heartbeat['engineering_loop'] = engineering.engineering_loop_cycle(
+            automation.monitored_repos(), automation.slack_notify
+        )
+    except Exception as exc:
+        heartbeat['engineering_loop'] = {'status': 'failed', 'error': str(exc)}
+        heartbeat['warnings'].append(f'Engineering Loop: {exc}')
+        automation.slack_notify(f'🚨 KIO Engineering Loop: 例外が発生しました: {exc}')
 
     try:
         issues = list_agent_issues()
@@ -181,10 +196,10 @@ def cycle() -> dict[str, Any]:
             result = execute_action(action)
         result['issue_number'] = issue['number']
         heartbeat['processed'].append(result)
-        if result.get('status') == 'ok':
+        if result.get('status') in {'ok', 'baseline_created'}:
             automation.slack_notify(f"✅ KIO Local Agent: {action} 完了 (Issue #{issue['number']})")
         elif result.get('status') not in {'rejected', 'skipped_dirty_worktree'}:
-            automation.slack_notify(f"🚨 KIO Local Agent: {action} 失敗 (Issue #{issue['number']}) attempts={len(result.get('attempts', []))}")
+            automation.slack_notify(f"🚨 KIO Local Agent: {action} 失敗/要確認 (Issue #{issue['number']})")
         try:
             comment_and_close(int(issue['number']), result)
         except Exception as exc:
@@ -200,7 +215,7 @@ def write_heartbeat(data: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='KIO always-on local node controller.')
-    parser.add_argument('command', choices=['cycle', 'status', 'run', 'watch-files', 'monitor-prs', 'notify-test'])
+    parser.add_argument('command', choices=['cycle', 'status', 'run', 'watch-files', 'monitor-prs', 'engineering-loop', 'notify-test'])
     parser.add_argument('action', nargs='?')
     args = parser.parse_args()
 
@@ -220,6 +235,10 @@ def main() -> int:
     if args.command == 'monitor-prs':
         print(json.dumps(automation.pr_monitor_cycle(), ensure_ascii=False, indent=2))
         return 0
+    if args.command == 'engineering-loop':
+        result = engineering.engineering_loop_cycle(automation.monitored_repos(), automation.slack_notify)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get('status') in {'ok', 'partial', 'baseline_created', 'disabled'} else 1
     if args.command == 'notify-test':
         result = automation.slack_notify('✅ KIO Local Agent: Slack通知テストに成功しました。')
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -228,7 +247,7 @@ def main() -> int:
         parser.error('run requires an action')
     result = execute_action(args.action)
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree'} else 1
+    return 0 if result.get('status') in {'ok', 'rejected', 'skipped_dirty_worktree', 'baseline_created', 'partial'} else 1
 
 
 if __name__ == '__main__':

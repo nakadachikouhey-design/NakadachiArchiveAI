@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from historical_works_discovery import classify_media, file_matches, normalise
+from historical_works_discovery import classify_media, file_matches, match_aliases, normalise
 
 
 def test_normalise_ignores_case_and_spaces():
@@ -17,6 +17,11 @@ def test_file_matches_english_alias():
     matches = file_matches(path, ['ANEMOS', 'Calling for my wind'])
     assert 'ANEMOS' in matches
     assert 'Calling for my wind' in matches
+
+
+def test_match_aliases_finds_extracted_text():
+    text = '構成・演出 中立公平。作品名はファウストの恋人。'
+    assert match_aliases(text, ['ファウストの恋人', 'Lover of Faust']) == ['ファウストの恋人']
 
 
 def test_classify_media():

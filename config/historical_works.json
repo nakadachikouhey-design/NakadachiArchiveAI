@@ -1,0 +1,23 @@
+{
+  "output_dir": "~/NakadachiArchiveAI/historical_works",
+  "max_results_per_work": 500,
+  "content_extensions": [".txt", ".md", ".rtf", ".docx", ".pdf", ".xlsx", ".pptx", ".html", ".htm"],
+  "media_extensions": [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".mov", ".mp4", ".m4v", ".wav", ".aif", ".aiff", ".mp3", ".fcpxml"],
+  "works": [
+    {"id": "act_live", "title": "ACT LIVE", "aliases": ["ACT LIVE", "ACTLIVE", "Actlive", "アクトライブ", "アクト・ライブ"]},
+    {"id": "anemos", "title": "ANEMOS -Calling for my wind-", "aliases": ["ANEMOS", "Anemos", "アネモス", "Calling for my wind"]},
+    {"id": "faust_lover", "title": "ファウストの恋人", "aliases": ["ファウストの恋人", "Lover of Faust", "Faust"]},
+    {"id": "izutsu", "title": "井筒", "aliases": ["井筒", "Izutsu", "Head Well"]},
+    {"id": "hinotori_igyo", "title": "火の鳥〜異形編", "aliases": ["火の鳥", "異形編", "火の鳥〜異形編", "火の鳥～異形編"]},
+    {"id": "line_no1", "title": "地下鉄1号線", "aliases": ["地下鉄1号線", "地下鉄一号線", "Line No.1", "Line No 1"]},
+    {"id": "mukashi", "title": "Mukashi, Mukashi", "aliases": ["Mukashi, Mukashi", "Mukashi Mukashi", "むかしむかし", "昔々", "CORPUS"]},
+    {"id": "elephant_holiday", "title": "ゾウの休日", "aliases": ["ゾウの休日", "The Holiday of the Elephant"]},
+    {"id": "tact", "title": "TACT/FEST", "aliases": ["TACT/FEST", "TACT FEST", "TACT OSAKA", "タクトフェスト"]}
+  ],
+  "evidence_keywords": {
+    "credits": ["作", "演出", "構成", "音楽", "美術", "照明", "芸術監督", "Artistic Director", "Director", "Created by"],
+    "external_evaluation": ["批評", "講評", "評価", "review", "critique", "award", "受賞", "招待", "invited"],
+    "performance": ["公演", "上演", "会場", "開演", "出演", "program", "performance", "venue"],
+    "international": ["国際共同制作", "co-production", "coproduction", "festival", "海外", "Canada", "Korea", "Australia", "Romania", "Denmark"]
+  }
+}

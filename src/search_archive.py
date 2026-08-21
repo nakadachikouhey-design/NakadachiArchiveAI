@@ -51,6 +51,52 @@ JSON_FIELDS = {
 }
 TOKEN_RE = re.compile(r"[A-Za-z0-9_./+-]+|[\u3040-\u30ff\u3400-\u9fffー]{2,}")
 
+# Generated indexes are useful context, but should not outrank original evidence.
+META_FILENAMES = {
+    "AUTOMATION_PLAN.md",
+    "BRAND_INDEX.md",
+    "CHANGELOG.md",
+    "KNOWLEDGE_INDEX.md",
+    "PROJECT_INDEX.md",
+    "REVIEW_LIST.md",
+    "AI_CONSTITUTION.md",
+    "AI_KNOWLEDGE_ENGINE.md",
+}
+META_PATH_MARKERS = (
+    "/00_CHURITSU_HUB/",
+    "/assistant_output/",
+    "/knowledge_engine/run_",
+)
+PRIMARY_NAME_TERMS = (
+    "実績マスター",
+    "実績一覧",
+    "事業報告",
+    "報告書",
+    "予算",
+    "精算",
+    "決算",
+    "契約",
+    "申請",
+    "企画書",
+    "提案書",
+    "proposal",
+    "budget",
+    "report",
+    "contract",
+)
+CATEGORY_QUALITY_BONUS = {
+    "contract_finance": 4.0,
+    "grant_report": 3.0,
+    "photo_documentation": 2.0,
+    "video_documentation": 2.0,
+    "design_publicity": 1.5,
+    "production": 1.0,
+}
+MEDIA_QUALITY_BONUS = {
+    "spreadsheet": 2.0,
+    "document": 0.5,
+}
+
 
 def main() -> int:
     argv = normalize_argv(sys.argv[1:])
@@ -199,7 +245,13 @@ def search(db: sqlite3.Connection, args: argparse.Namespace) -> list[dict[str, A
         """
         try:
             for row in db.execute(sql, [column_filter + fts_query, *filter_values, limit]):
-                result = row_to_result(row, query=query, method="fts", score=float(row["rank_score"] or 0))
+                result = row_to_result(
+                    row,
+                    query=query,
+                    method="fts",
+                    score=fts_relevance_score(float(row["rank_score"] or 0)),
+                )
+                apply_source_quality(result)
                 results[result["id"]] = result
         except sqlite3.OperationalError:
             pass
@@ -207,12 +259,60 @@ def search(db: sqlite3.Connection, args: argparse.Namespace) -> list[dict[str, A
     like_rows = like_search(db, query, args.mode, filters, filter_values, limit * 3)
     for row in like_rows:
         result = row_to_result(row, query=query, method="like", score=like_score(row, query, args.mode))
+        apply_source_quality(result)
         existing = results.get(result["id"])
         if existing is None or result["score"] > existing["score"]:
             results[result["id"]] = result
 
     ordered = sorted(results.values(), key=lambda item: (-item["score"], item["file_name"], item["full_path"]))
     return ordered[:limit]
+
+
+def fts_relevance_score(rank_score: float) -> float:
+    """Convert FTS5 bm25 ordering into the engine's 'higher is better' convention."""
+    return -float(rank_score)
+
+
+def source_quality_adjustment(result: dict[str, Any]) -> float:
+    """Favor original evidence while retaining generated indexes as lower-priority context."""
+    file_name = str(result.get("file_name") or "")
+    file_name_folded = file_name.casefold()
+    full_path = str(result.get("full_path") or "")
+    category = str(result.get("ai_category") or "")
+    media_type = str(result.get("media_type_candidate") or "")
+    source_role = str(result.get("source_role") or "").casefold()
+
+    adjustment = 0.0
+
+    if file_name.upper() in {name.upper() for name in META_FILENAMES}:
+        adjustment -= 12.0
+    if any(marker.casefold() in full_path.casefold() for marker in META_PATH_MARKERS):
+        adjustment -= 5.0
+
+    for term in PRIMARY_NAME_TERMS:
+        if term.casefold() in file_name_folded:
+            adjustment += 3.0
+    if "実績マスター" in file_name:
+        adjustment += 5.0
+
+    adjustment += CATEGORY_QUALITY_BONUS.get(category, 0.0)
+    adjustment += MEDIA_QUALITY_BONUS.get(media_type, 0.0)
+
+    if any(term in source_role for term in ("original", "primary", "source", "原本")):
+        adjustment += 3.0
+    if any(term in source_role for term in ("generated", "derived", "index", "ai")):
+        adjustment -= 3.0
+
+    return adjustment
+
+
+def apply_source_quality(result: dict[str, Any]) -> dict[str, Any]:
+    base_score = float(result.get("score") or 0.0)
+    quality_adjustment = source_quality_adjustment(result)
+    result["base_score"] = round(base_score, 4)
+    result["quality_adjustment"] = round(quality_adjustment, 4)
+    result["score"] = round(base_score + quality_adjustment, 4)
+    return result
 
 
 def like_search(

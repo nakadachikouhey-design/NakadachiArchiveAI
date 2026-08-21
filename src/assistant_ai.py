@@ -22,7 +22,10 @@ TASKS = {
     "decision": {"label": "意思決定", "questions": ["選択肢は何か", "判断材料は何か", "リスクは何か", "今決めるべきことは何か"], "outputs": ["選択肢", "根拠資料", "リスク", "推奨判断", "次アクション"]},
 }
 
-REFERENCE_FILENAMES = {"AUTOMATION_PLAN.md", "BRAND_INDEX.md", "CHANGELOG.md", "KNOWLEDGE_INDEX.md", "PROJECT_INDEX.md", "REVIEW_LIST.md", "AI_CONSTITUTION.md", "AI_KNOWLEDGE_ENGINE.md"}
+REFERENCE_FILENAMES = {
+    "AUTOMATION_PLAN.md", "BRAND_INDEX.md", "CHANGELOG.md", "KNOWLEDGE_INDEX.md",
+    "PROJECT_INDEX.md", "REVIEW_LIST.md", "AI_CONSTITUTION.md", "AI_KNOWLEDGE_ENGINE.md",
+}
 REFERENCE_PATH_MARKERS = ("/00_CHURITSU_HUB/", "/assistant_output/", "/knowledge_engine/run_")
 TEMP_PATH_MARKERS = ("/.codex_tmp/", "/.tmp/", "/tmp/", "/__pycache__/", "/previews/", "/previews_updated/", "/preview/")
 CODE_EXTENSIONS = {".py", ".pyc", ".mjs", ".js", ".ts", ".sh", ".zsh"}
@@ -210,20 +213,23 @@ def project_relevance(result: dict[str, Any], profile: dict[str, Any] | None) ->
         return True, "approved_cross_project_master", 100
 
     text = material_text(result)
-    strong_terms = [profile.get("name", ""), *(profile.get("aliases") or [])]
+    identity_terms = profile.get("identity_terms") or [profile.get("name", ""), *(profile.get("aliases") or [])]
+    strict_identity = bool(profile.get("require_identity_match"))
     weak_terms = profile.get("keywords") or []
     evidence_terms = profile.get("evidence_needs") or []
 
-    strong_hits = [str(term) for term in strong_terms if term and str(term).casefold() in text]
+    identity_hits = [str(term) for term in identity_terms if term and str(term).casefold() in text]
     weak_hits = [str(term) for term in weak_terms if term and len(str(term)) >= 3 and str(term).casefold() in text]
     evidence_hits = [str(term) for term in evidence_terms if term and str(term).casefold() in text]
 
-    score = len(strong_hits) * 5 + min(len(weak_hits), 4) + min(len(evidence_hits), 2)
+    score = len(identity_hits) * 5 + min(len(weak_hits), 4) + min(len(evidence_hits), 2)
     result["project_relevance_score"] = score
-    result["project_relevance_hits"] = {"strong": strong_hits[:8], "weak": weak_hits[:8], "evidence": evidence_hits[:8]}
+    result["project_relevance_hits"] = {"identity": identity_hits[:8], "weak": weak_hits[:8], "evidence": evidence_hits[:8]}
 
-    if strong_hits:
+    if identity_hits:
         return True, "project_identity_match", score
+    if strict_identity:
+        return False, "missing_required_project_identity", score
     if score >= 4:
         return True, "project_context_match", score
     return False, "insufficient_project_relevance", score
@@ -302,7 +308,12 @@ def make_pack(title: str, profile: dict[str, Any] | None, task_names: list[str],
         "profile": profile,
         "request": request,
         "tasks": [TASKS[name] | {"id": name} for name in task_names],
-        "summary": {"evidence_count": len(evidence), "related_count": len(related), "categories": dict(Counter(item.get("ai_category") or "unknown" for item in evidence).most_common()), "media_types": dict(Counter(item.get("media_type_candidate") or "unknown" for item in evidence).most_common())},
+        "summary": {
+            "evidence_count": len(evidence),
+            "related_count": len(related),
+            "categories": dict(Counter(item.get("ai_category") or "unknown" for item in evidence).most_common()),
+            "media_types": dict(Counter(item.get("media_type_candidate") or "unknown" for item in evidence).most_common()),
+        },
         "evidence": evidence,
         "related_materials": related,
         "assistant_instructions": assistant_instructions(profile, task_names),
@@ -314,7 +325,14 @@ def make_pack(title: str, profile: dict[str, Any] | None, task_names: list[str],
 def assistant_instructions(profile: dict[str, Any] | None, task_names: list[str]) -> list[str]:
     name = profile["name"] if profile else "該当事業"
     labels = "、".join(TASKS[item]["label"] for item in task_names)
-    return [f"{name}について、Evidence を事実根拠として扱い、Related Materials は補助文脈として扱う。", "Evidence は資格判定とプロジェクト関連性ゲートの両方を通過した資料だけを使う。", "Related Materials のみで事実を確定しない。資料パスを明示し、根拠がないことは推測として分ける。", f"今回の目的は {labels} の支援である。", "不足資料・確認事項・次に探すべき資料を最後に整理する。", "元ファイルの移動、削除、リネーム、編集は提案しない。"]
+    return [
+        f"{name}について、Evidence を事実根拠として扱い、Related Materials は補助文脈として扱う。",
+        "Evidence は資格判定とプロジェクト関連性ゲートの両方を通過した資料だけを使う。",
+        "Related Materials のみで事実を確定しない。資料パスを明示し、根拠がないことは推測として分ける。",
+        f"今回の目的は {labels} の支援である。",
+        "不足資料・確認事項・次に探すべき資料を最後に整理する。",
+        "元ファイルの移動、削除、リネーム、編集は提案しない。",
+    ]
 
 
 def next_actions(task_names: list[str]) -> list[str]:
@@ -354,7 +372,12 @@ def pack_to_markdown(pack: dict[str, Any]) -> str:
     lines = [f"# {pack['title']}", "", f"- Created: {pack['created_at']}", f"- Database: `{pack['database']}`"]
     profile = pack.get("profile")
     if profile:
-        lines.extend([f"- Project: {profile['name']}", f"- Goals: {', '.join(profile.get('business_goals') or [])}", f"- Audiences: {', '.join(profile.get('audiences') or [])}", f"- Evidence needs: {', '.join(profile.get('evidence_needs') or [])}"])
+        lines.extend([
+            f"- Project: {profile['name']}",
+            f"- Goals: {', '.join(profile.get('business_goals') or [])}",
+            f"- Audiences: {', '.join(profile.get('audiences') or [])}",
+            f"- Evidence needs: {', '.join(profile.get('evidence_needs') or [])}",
+        ])
     if pack.get("request"):
         lines.append(f"- Request: {pack['request']}")
     lines.extend(["", "## Assistant Instructions", ""])
@@ -381,12 +404,26 @@ def pack_to_markdown(pack: dict[str, Any]) -> str:
         lines.append(render_draft(draft))
     lines.extend(["", "## Next Actions", ""])
     lines.extend(f"- {item}" for item in pack["next_actions"])
-    lines.extend(["", "## Prompt For ChatGPT Or Codex", "", "```text", "このパックの Evidence を事実根拠として、目的に沿った提案・文案・判断材料を作成してください。", "Evidence は資格判定とプロジェクト関連性ゲートを通過した資料だけです。", "Related Materials / Reference Context は補助文脈に限定し、それだけで事実を確定しないでください。", "根拠資料のパスを明示し、推測と事実を分け、不足資料を最後に列挙してください。", "元ファイルの移動・削除・リネーム・編集は提案しないでください。", "```", ""])
+    lines.extend([
+        "", "## Prompt For ChatGPT Or Codex", "", "```text",
+        "このパックの Evidence を事実根拠として、目的に沿った提案・文案・判断材料を作成してください。",
+        "Evidence は資格判定とプロジェクト関連性ゲートを通過した資料だけです。",
+        "Related Materials / Reference Context は補助文脈に限定し、それだけで事実を確定しないでください。",
+        "根拠資料のパスを明示し、推測と事実を分け、不足資料を最後に列挙してください。",
+        "元ファイルの移動・削除・リネーム・編集は提案しないでください。", "```", "",
+    ])
     return "\n".join(lines)
 
 
 def render_material(index: int, item: dict[str, Any]) -> str:
-    lines = [f"### {index}. {item.get('file_name', '')}", "", f"- Path: `{item.get('full_path', '')}`", f"- Category: `{item.get('ai_category', '')}`", f"- Media type: `{item.get('media_type_candidate', '')}`", f"- Modified: `{item.get('modified_at', '')}`", f"- Score: `{item.get('score', '')}`"]
+    lines = [
+        f"### {index}. {item.get('file_name', '')}", "",
+        f"- Path: `{item.get('full_path', '')}`",
+        f"- Category: `{item.get('ai_category', '')}`",
+        f"- Media type: `{item.get('media_type_candidate', '')}`",
+        f"- Modified: `{item.get('modified_at', '')}`",
+        f"- Score: `{item.get('score', '')}`",
+    ]
     if "evidence_eligible" in item:
         lines.append(f"- Evidence eligible: `{item.get('evidence_eligible')}` ({item.get('evidence_eligibility_reason', '')})")
     if "project_relevant" in item:
@@ -434,7 +471,20 @@ def evidence_bullets(items: list[dict[str, Any]]) -> list[str]:
 
 
 def media_bullets(items: list[dict[str, Any]]) -> list[str]:
-    media = [item for item in items if item.get("media_type_candidate") in {"image", "video", "presentation", "document", "spreadsheet"} and not str(item.get("full_path") or "").casefold().find("/preview") >= 0][:6]
+    media: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("media_type_candidate") not in {"image", "video", "presentation", "document", "spreadsheet"}:
+            continue
+        if item.get("evidence_eligible") is False:
+            continue
+        if item.get("project_relevant") is False:
+            continue
+        path = str(item.get("full_path") or "").casefold()
+        if "/preview" in path:
+            continue
+        media.append(item)
+        if len(media) >= 6:
+            break
     return evidence_bullets(media) if media else ["- 画像・動画・提案資料などの素材候補は追加検索が必要。"]
 
 

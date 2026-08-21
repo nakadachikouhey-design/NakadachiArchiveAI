@@ -12,6 +12,7 @@ import search_archive
 
 DEFAULT_PROFILES = str(Path(__file__).resolve().parent.parent / "config" / "project_profiles.json")
 DEFAULT_OUTPUT_DIR = "~/NakadachiArchiveAI/assistant_output"
+
 TASKS = {
     "planning": {
         "label": "企画立案",
@@ -50,6 +51,31 @@ TASKS = {
     },
 }
 
+# These files are navigation/AI-generated context, not primary evidence.
+REFERENCE_FILENAMES = {
+    "AUTOMATION_PLAN.md",
+    "BRAND_INDEX.md",
+    "CHANGELOG.md",
+    "KNOWLEDGE_INDEX.md",
+    "PROJECT_INDEX.md",
+    "REVIEW_LIST.md",
+    "AI_CONSTITUTION.md",
+    "AI_KNOWLEDGE_ENGINE.md",
+}
+REFERENCE_PATH_MARKERS = (
+    "/00_CHURITSU_HUB/",
+    "/assistant_output/",
+    "/knowledge_engine/run_",
+)
+TEMP_PATH_MARKERS = (
+    "/.codex_tmp/",
+    "/.tmp/",
+    "/tmp/",
+    "/__pycache__/",
+)
+CODE_EXTENSIONS = {".py", ".pyc", ".mjs", ".js", ".ts", ".sh", ".zsh"}
+CODE_NAME_MARKERS = ("build_", "update_", "generate_", "sync_", "test_")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Nakadachi Archive AI assistant layer.")
@@ -87,7 +113,6 @@ def main() -> int:
 
     args = parser.parse_args()
     profiles = load_profiles(Path(args.profiles))
-
     if args.command == "list-projects":
         render_project_list(profiles, args.format)
         return 0
@@ -110,12 +135,11 @@ def main() -> int:
             profile = find_profile(profiles, args.project) if args.project else infer_profile(profiles, args.request)
             pack = build_request_context(db, profile, args.request, args.task, args.limit, db_path)
             render_or_save(pack, args.format, args.save, Path(args.output_dir).expanduser())
-        elif args.command == "build-packs":
+        else:
             output_dir = Path(args.output_dir).expanduser()
             output_dir.mkdir(parents=True, exist_ok=True)
             for profile in profiles:
-                pack = build_brief(db, profile, args.task, "", args.limit, db_path)
-                save_pack(pack, output_dir)
+                save_pack(build_brief(db, profile, args.task, "", args.limit, db_path), output_dir)
             print(f"Knowledge packs written to: {output_dir}")
     return 0
 
@@ -152,61 +176,7 @@ def infer_profile(profiles: list[dict[str, Any]], request: str) -> dict[str, Any
         score = sum(1 for term in terms if str(term).casefold() in folded)
         if score:
             scores.append((score, profile))
-    if scores:
-        return sorted(scores, key=lambda item: (-item[0], item[1]["id"]))[0][1]
-    return None
-
-
-def build_brief(
-    db: Any,
-    profile: dict[str, Any],
-    task: str,
-    extra_query: str,
-    limit: int,
-    db_path: Path,
-) -> dict[str, Any]:
-    queries = profile_queries(profile)
-    if extra_query:
-        queries.insert(0, extra_query)
-    evidence = gather_evidence(db, queries, limit)
-    related = gather_related(db, evidence[:3], limit=max(5, limit // 2))
-    resolved_task = infer_task(extra_query, default="planning") if task == "auto" else task
-    tasks = list(TASKS) if resolved_task == "all" else [resolved_task]
-    return make_pack(
-        title=f"{profile['name']} AI事業ブリーフ",
-        profile=profile,
-        task_names=tasks,
-        request=extra_query,
-        evidence=evidence,
-        related=related,
-        db_path=db_path,
-    )
-
-
-def build_request_context(
-    db: Any,
-    profile: dict[str, Any] | None,
-    request: str,
-    task: str,
-    limit: int,
-    db_path: Path,
-) -> dict[str, Any]:
-    queries = [request]
-    if profile:
-        queries.extend(profile_queries(profile))
-    evidence = gather_evidence(db, queries, limit)
-    related = gather_related(db, evidence[:3], limit=max(5, limit // 2))
-    resolved_task = infer_task(request, default="decision") if task == "auto" else task
-    tasks = list(TASKS) if resolved_task == "all" else [resolved_task]
-    return make_pack(
-        title="Nakadachi Archive AI 要求対応パック",
-        profile=profile,
-        task_names=tasks,
-        request=request,
-        evidence=evidence,
-        related=related,
-        db_path=db_path,
-    )
+    return sorted(scores, key=lambda item: (-item[0], item[1]["id"]))[0][1] if scores else None
 
 
 def profile_queries(profile: dict[str, Any]) -> list[str]:
@@ -229,17 +199,42 @@ def infer_task(text: str, default: str) -> str:
         "documents": ["資料", "スライド", "文書", "企画書", "報告書", "document"],
         "decision": ["判断", "意思決定", "比較", "選択", "決める", "decision"],
     }
-    scores = {
-        task: sum(1 for keyword in keywords if keyword.casefold() in folded)
-        for task, keywords in task_keywords.items()
-    }
+    scores = {task: sum(1 for keyword in words if keyword.casefold() in folded) for task, words in task_keywords.items()}
     best_task, best_score = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0]
     return best_task if best_score else default
 
 
-def gather_evidence(db: Any, queries: list[str], limit: int) -> list[dict[str, Any]]:
+def evidence_eligibility(result: dict[str, Any]) -> tuple[bool, str]:
+    file_name = str(result.get("file_name") or "")
+    full_path = str(result.get("full_path") or "")
+    extension = str(result.get("extension") or Path(file_name).suffix).casefold()
+    source_role = str(result.get("source_role") or "").casefold()
+    path_folded = full_path.casefold()
+
+    if file_name.upper() in {name.upper() for name in REFERENCE_FILENAMES}:
+        return False, "generated_index_or_hub_document"
+    if any(marker.casefold() in path_folded for marker in REFERENCE_PATH_MARKERS):
+        return False, "generated_reference_context"
+    if any(marker.casefold() in path_folded for marker in TEMP_PATH_MARKERS):
+        return False, "temporary_or_working_file"
+    if extension in CODE_EXTENSIONS and any(marker in file_name.casefold() for marker in CODE_NAME_MARKERS):
+        return False, "implementation_script_not_business_evidence"
+    if any(term in source_role for term in ("generated", "derived", "index", "ai")):
+        return False, "derived_or_generated_source"
+    return True, "eligible_primary_or_business_evidence"
+
+
+def annotate_eligibility(result: dict[str, Any]) -> dict[str, Any]:
+    eligible, reason = evidence_eligibility(result)
+    result["evidence_eligible"] = eligible
+    result["evidence_eligibility_reason"] = reason
+    return result
+
+
+def gather_candidates(db: Any, queries: list[str], limit: int) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-    per_query_limit = max(5, limit)
+    # Oversample because generated/meta files may occupy high raw-search positions.
+    per_query_limit = max(30, limit * 5)
     for query in [item for item in queries if item.strip()]:
         args = argparse.Namespace(
             query=query,
@@ -252,34 +247,63 @@ def gather_evidence(db: Any, queries: list[str], limit: int) -> list[dict[str, A
             extension=None,
             ocr_only=False,
         )
-        for result in search_archive.search(db, args):
+        for raw in search_archive.search(db, args):
+            result = annotate_eligibility(raw)
             key = result["full_path"]
             existing = found.get(key)
-            if not existing or result["score"] > existing["score"]:
+            if not existing or float(result.get("score") or 0) > float(existing.get("score") or 0):
                 result["retrieval_query"] = query
                 found[key] = result
-    return sorted(found.values(), key=lambda item: (-float(item.get("score") or 0), item["file_name"]))[:limit]
+    return sorted(found.values(), key=lambda item: (-float(item.get("score") or 0), item.get("file_name", "")))
 
 
-def gather_related(db: Any, seeds: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
-    related: dict[str, dict[str, Any]] = {}
-    for seed in seeds:
-        args = argparse.Namespace(query="", path=seed["full_path"], id=None, limit=limit, format="json")
-        for result in search_archive.related(db, args):
-            if result["full_path"] not in related:
-                related[result["full_path"]] = result
-    return sorted(related.values(), key=lambda item: (-float(item.get("score") or 0), item["file_name"]))[:limit]
+def gather_evidence(db: Any, queries: list[str], limit: int) -> list[dict[str, Any]]:
+    candidates = gather_candidates(db, queries, limit)
+    return [item for item in candidates if item.get("evidence_eligible")][:limit]
 
 
-def make_pack(
-    title: str,
-    profile: dict[str, Any] | None,
-    task_names: list[str],
-    request: str,
-    evidence: list[dict[str, Any]],
-    related: list[dict[str, Any]],
-    db_path: Path,
-) -> dict[str, Any]:
+def gather_reference_context(db: Any, queries: list[str], evidence: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    references: dict[str, dict[str, Any]] = {}
+    evidence_paths = {item.get("full_path") for item in evidence}
+
+    for item in gather_candidates(db, queries, limit):
+        if item.get("full_path") not in evidence_paths and not item.get("evidence_eligible"):
+            references[item["full_path"]] = item
+
+    for seed in evidence[:3]:
+        args = argparse.Namespace(query="", path=seed["full_path"], id=None, limit=max(10, limit * 2), format="json")
+        for raw in search_archive.related(db, args):
+            result = annotate_eligibility(raw)
+            if result.get("full_path") in evidence_paths:
+                continue
+            references.setdefault(result["full_path"], result)
+
+    return sorted(references.values(), key=lambda item: (-float(item.get("score") or 0), item.get("file_name", "")))[:limit]
+
+
+def build_brief(db: Any, profile: dict[str, Any], task: str, extra_query: str, limit: int, db_path: Path) -> dict[str, Any]:
+    queries = profile_queries(profile)
+    if extra_query:
+        queries.insert(0, extra_query)
+    evidence = gather_evidence(db, queries, limit)
+    related = gather_reference_context(db, queries, evidence, limit=max(5, limit // 2))
+    resolved_task = infer_task(extra_query, default="planning") if task == "auto" else task
+    tasks = list(TASKS) if resolved_task == "all" else [resolved_task]
+    return make_pack(f"{profile['name']} AI事業ブリーフ", profile, tasks, extra_query, evidence, related, db_path)
+
+
+def build_request_context(db: Any, profile: dict[str, Any] | None, request: str, task: str, limit: int, db_path: Path) -> dict[str, Any]:
+    queries = [request]
+    if profile:
+        queries.extend(profile_queries(profile))
+    evidence = gather_evidence(db, queries, limit)
+    related = gather_reference_context(db, queries, evidence, limit=max(5, limit // 2))
+    resolved_task = infer_task(request, default="decision") if task == "auto" else task
+    tasks = list(TASKS) if resolved_task == "all" else [resolved_task]
+    return make_pack("Nakadachi Archive AI 要求対応パック", profile, tasks, request, evidence, related, db_path)
+
+
+def make_pack(title: str, profile: dict[str, Any] | None, task_names: list[str], request: str, evidence: list[dict[str, Any]], related: list[dict[str, Any]], db_path: Path) -> dict[str, Any]:
     categories = Counter(item.get("ai_category") or "unknown" for item in evidence)
     media_types = Counter(item.get("media_type_candidate") or "unknown" for item in evidence)
     return {
@@ -305,23 +329,19 @@ def make_pack(
 
 def assistant_instructions(profile: dict[str, Any] | None, task_names: list[str]) -> list[str]:
     name = profile["name"] if profile else "該当事業"
-    task_labels = "、".join(TASKS[name]["label"] for name in task_names)
+    labels = "、".join(TASKS[item]["label"] for item in task_names)
     return [
-        f"{name}について、添付された evidence と related_materials を根拠として扱う。",
-        "資料パスを明示し、根拠がないことは推測として分ける。",
-        f"今回の目的は {task_labels} の支援である。",
+        f"{name}について、Evidence を事実根拠として扱い、Related Materials は補助文脈として扱う。",
+        "Related Materials のみで事実を確定しない。資料パスを明示し、根拠がないことは推測として分ける。",
+        f"今回の目的は {labels} の支援である。",
         "不足資料・確認事項・次に探すべき資料を最後に整理する。",
         "元ファイルの移動、削除、リネーム、編集は提案しない。",
     ]
 
 
 def next_actions(task_names: list[str]) -> list[str]:
-    actions = []
-    for task_name in task_names:
-        task = TASKS[task_name]
-        actions.append(f"{task['label']}: {', '.join(task['outputs'][:3])} を作成する")
-    actions.append("根拠資料のパスを脚注または参考資料として残す")
-    actions.append("不足している証拠資料を追加検索する")
+    actions = [f"{TASKS[name]['label']}: {', '.join(TASKS[name]['outputs'][:3])} を作成する" for name in task_names]
+    actions.extend(["根拠資料のパスを脚注または参考資料として残す", "不足している証拠資料を追加検索する"])
     return actions
 
 
@@ -335,10 +355,8 @@ def render_project_list(profiles: list[dict[str, Any]], output_format: str) -> N
 
 def render_or_save(pack: dict[str, Any], output_format: str, save: bool, output_dir: Path) -> None:
     if save:
-        path = save_pack(pack, output_dir)
-        print(f"Wrote assistant pack: {path}")
-        return
-    if output_format == "json":
+        print(f"Wrote assistant pack: {save_pack(pack, output_dir)}")
+    elif output_format == "json":
         print(json.dumps(pack, ensure_ascii=False, indent=2))
     else:
         print(pack_to_markdown(pack))
@@ -346,89 +364,74 @@ def render_or_save(pack: dict[str, Any], output_format: str, save: bool, output_
 
 def save_pack(pack: dict[str, Any], output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    profile = pack.get("profile") or {}
-    profile_id = profile.get("id", "request")
+    profile_id = (pack.get("profile") or {}).get("id", "request")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = output_dir / f"{profile_id}_{timestamp}.md"
     path.write_text(pack_to_markdown(pack), encoding="utf-8")
-    json_path = path.with_suffix(".json")
-    json_path.write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.with_suffix(".json").write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 
 def pack_to_markdown(pack: dict[str, Any]) -> str:
-    lines = [
-        f"# {pack['title']}",
-        "",
-        f"- Created: {pack['created_at']}",
-        f"- Database: `{pack['database']}`",
-    ]
+    lines = [f"# {pack['title']}", "", f"- Created: {pack['created_at']}", f"- Database: `{pack['database']}`"]
     profile = pack.get("profile")
     if profile:
-        lines.extend(
-            [
-                f"- Project: {profile['name']}",
-                f"- Goals: {', '.join(profile.get('business_goals') or [])}",
-                f"- Audiences: {', '.join(profile.get('audiences') or [])}",
-                f"- Evidence needs: {', '.join(profile.get('evidence_needs') or [])}",
-            ]
-        )
+        lines.extend([
+            f"- Project: {profile['name']}",
+            f"- Goals: {', '.join(profile.get('business_goals') or [])}",
+            f"- Audiences: {', '.join(profile.get('audiences') or [])}",
+            f"- Evidence needs: {', '.join(profile.get('evidence_needs') or [])}",
+        ])
     if pack.get("request"):
         lines.append(f"- Request: {pack['request']}")
 
     lines.extend(["", "## Assistant Instructions", ""])
     lines.extend(f"- {item}" for item in pack["assistant_instructions"])
-
     lines.extend(["", "## Task Frames", ""])
     for task in pack["tasks"]:
-        lines.append(f"### {task['label']}")
-        lines.append("")
-        lines.append("Questions:")
+        lines.extend([f"### {task['label']}", "", "Questions:"])
         lines.extend(f"- {item}" for item in task["questions"])
-        lines.append("")
-        lines.append("Expected outputs:")
+        lines.extend(["", "Expected outputs:"])
         lines.extend(f"- {item}" for item in task["outputs"])
         lines.append("")
 
     lines.extend(["", "## Evidence", ""])
     if not pack["evidence"]:
-        lines.append("- No evidence found.")
+        lines.append("- No eligible primary/business evidence found.")
     for index, item in enumerate(pack["evidence"], start=1):
         lines.append(render_material(index, item))
 
-    lines.extend(["", "## Related Materials", ""])
+    lines.extend(["", "## Related Materials / Reference Context", ""])
     if not pack["related_materials"]:
-        lines.append("- No related materials found.")
+        lines.append("- No related reference context found.")
     for index, item in enumerate(pack["related_materials"], start=1):
         lines.append(render_material(index, item))
 
     lines.extend(["", "## Draft Outputs", ""])
     for draft in pack.get("draft_outputs") or []:
         lines.append(render_draft(draft))
-
     lines.extend(["", "## Next Actions", ""])
     lines.extend(f"- {item}" for item in pack["next_actions"])
-
-    lines.extend(["", "## Prompt For ChatGPT Or Codex", ""])
-    lines.append("```text")
-    lines.append("このパックの Evidence と Related Materials だけを根拠に、目的に沿った提案・文案・判断材料を作成してください。")
+    lines.extend(["", "## Prompt For ChatGPT Or Codex", "", "```text"])
+    lines.append("このパックの Evidence を事実根拠として、目的に沿った提案・文案・判断材料を作成してください。")
+    lines.append("Related Materials / Reference Context は補助文脈に限定し、それだけで事実を確定しないでください。")
     lines.append("根拠資料のパスを明示し、推測と事実を分け、不足資料を最後に列挙してください。")
     lines.append("元ファイルの移動・削除・リネーム・編集は提案しないでください。")
-    lines.append("```")
-    lines.append("")
+    lines.extend(["```", ""])
     return "\n".join(lines)
 
 
 def render_material(index: int, item: dict[str, Any]) -> str:
     lines = [
-        f"### {index}. {item.get('file_name', '')}",
-        "",
+        f"### {index}. {item.get('file_name', '')}", "",
         f"- Path: `{item.get('full_path', '')}`",
         f"- Category: `{item.get('ai_category', '')}`",
         f"- Media type: `{item.get('media_type_candidate', '')}`",
         f"- Modified: `{item.get('modified_at', '')}`",
         f"- Score: `{item.get('score', '')}`",
     ]
+    if "evidence_eligible" in item:
+        lines.append(f"- Evidence eligible: `{item.get('evidence_eligible')}` ({item.get('evidence_eligibility_reason', '')})")
     tags = item.get("generated_tags") or []
     if tags:
         lines.append(f"- Tags: {', '.join(str(tag) for tag in tags[:16])}")
@@ -438,169 +441,53 @@ def render_material(index: int, item: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def generate_draft_outputs(
-    profile: dict[str, Any] | None,
-    task_names: list[str],
-    request: str,
-    evidence: list[dict[str, Any]],
-    related: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return [
-        generate_task_draft(task_name, profile, request, evidence, related)
-        for task_name in task_names
-    ]
+def generate_draft_outputs(profile: dict[str, Any] | None, task_names: list[str], request: str, evidence: list[dict[str, Any]], related: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [generate_task_draft(name, profile, request, evidence, related) for name in task_names]
 
 
-def generate_task_draft(
-    task_name: str,
-    profile: dict[str, Any] | None,
-    request: str,
-    evidence: list[dict[str, Any]],
-    related: list[dict[str, Any]],
-) -> dict[str, Any]:
+def generate_task_draft(task_name: str, profile: dict[str, Any] | None, request: str, evidence: list[dict[str, Any]], related: list[dict[str, Any]]) -> dict[str, Any]:
     project_name = profile["name"] if profile else "対象プロジェクト"
-    materials = evidence + related
     top_evidence = evidence[:6]
     evidence_lines = evidence_bullets(top_evidence)
     missing = missing_evidence(profile, evidence)
+    audiences = ", ".join(profile.get("audiences") or ["関係者", "観客", "協働先"]) if profile else "関係者、観客、協働先"
 
-    if task_name == "planning":
-        body = [
-            f"目的: {project_name}の過去資料を根拠に、次の企画の方向性を定める。",
-            "企画趣旨:",
-            f"- {project_name}の既存実績・記録を活かし、文化的価値と実施可能性を両立する企画として整理する。",
-            "対象者:",
-            f"- {', '.join(profile.get('audiences') or ['関係者', '観客', '協働先']) if profile else '関係者、観客、協働先'}",
-            "実施内容案:",
-            "- 既存資料から確認できる強みを中心に、開催実績、記録写真、提案資料、報告資料を組み合わせて企画骨子を作る。",
-            "根拠資料:",
-            *evidence_lines,
-        ]
-    elif task_name == "marketing":
-        body = [
-            f"訴求軸: {project_name}の実績、文化的意義、記録性を前面に出す。",
-            "ターゲット:",
-            f"- {', '.join(profile.get('audiences') or ['観客', '文化関係者', '協働先']) if profile else '観客、文化関係者、協働先'}",
-            "告知文案たたき台:",
-            f"- {project_name}のこれまでの活動と記録をもとに、新しい参加・鑑賞・協働の入口をつくります。",
-            "素材候補:",
-            *media_bullets(materials),
-            "根拠資料:",
-            *evidence_lines,
-        ]
-    elif task_name == "sales":
-        body = [
-            "提案骨子:",
-            f"- {project_name}は、文化的価値と実施実績をもとに、協働先へ具体的な提案ができる事業として提示する。",
-            "相手にとってのメリット:",
-            "- 文化的信用、地域・観客との接点、広報素材、実績活用の余地を整理して提示する。",
-            "提案メール下書き:",
-            f"- {project_name}の過去実績と関連資料をもとに、貴団体との協働可能性についてご相談したくご連絡しました。",
-            "添付資料候補:",
-            *evidence_lines,
-        ]
-    elif task_name == "grant":
-        body = [
-            "申請書骨子:",
-            f"- 事業名: {project_name}",
-            "- 目的: 過去実績と記録資料を根拠に、文化的・公共的意義を持つ事業として申請する。",
-            "- 社会的意義: 地域文化、舞台芸術、国際性、教育性、観客開発のいずれかを資料根拠に沿って明確化する。",
-            "- 実施内容: 既存資料から確認できる活動実績、提案書、報告書、写真記録を組み合わせて説明する。",
-            "- 成果指標: 参加者数、連携先数、制作物、記録資料、広報到達、次年度展開を候補とする。",
-            "必要添付資料候補:",
-            *evidence_lines,
-        ]
-    elif task_name == "documents":
-        body = [
-            "資料構成案:",
-            "1. 表紙: 事業名、目的、対象者",
-            "2. 背景: なぜ今必要か",
-            "3. 実績: 根拠資料に基づく過去活動",
-            "4. 提案内容: 何を実施するか",
-            "5. 体制・スケジュール",
-            "6. 参考資料・証拠資料一覧",
-            "引用・図版候補:",
-            *evidence_lines,
-        ]
-    elif task_name == "presentation":
-        body = [
-            "スライド構成案:",
-            "1. タイトル: 事業名と一言価値",
-            "2. 背景: なぜこの事業が必要か",
-            "3. 実績: 過去資料から見える強み",
-            "4. 企画: 今回実施する内容",
-            "5. 対象者・届け方",
-            "6. 期待成果",
-            "7. 協力・支援のお願い",
-            "8. 参考資料",
-            "図版候補:",
-            *media_bullets(materials),
-            "根拠資料:",
-            *evidence_lines,
-        ]
-    else:
-        body = [
-            "意思決定メモ:",
-            f"- 判断対象: {request or project_name}",
-            "- 推奨: 根拠資料がある範囲で進め、不足資料がある部分は推測として扱う。",
-            "判断材料:",
-            *evidence_lines,
-            "リスク:",
-            "- 資料が不足している領域は、申請・営業・広報の確定文に使う前に追加確認が必要。",
-        ]
-
-    body.extend(["不足資料・追加検索候補:", *missing])
-    return {
-        "task": task_name,
-        "label": TASKS[task_name]["label"],
-        "body": body,
+    common = {
+        "planning": [f"目的: {project_name}の過去資料を根拠に、次の企画の方向性を定める。", "企画趣旨:", f"- {project_name}の既存実績・記録を活かし、文化的価値と実施可能性を両立する企画として整理する。", "対象者:", f"- {audiences}", "実施内容案:", "- Eligible Evidence から確認できる強みを中心に企画骨子を作る。", "根拠資料:", *evidence_lines],
+        "marketing": [f"訴求軸: {project_name}の実績、文化的意義、記録性を前面に出す。", "ターゲット:", f"- {audiences}", "告知文案たたき台:", f"- {project_name}のこれまでの活動と記録をもとに、新しい参加・鑑賞・協働の入口をつくります。", "素材候補:", *media_bullets(evidence + related), "根拠資料:", *evidence_lines],
+        "sales": ["提案骨子:", f"- {project_name}は、文化的価値と実施実績をもとに、協働先へ具体的な提案ができる事業として提示する。", "相手にとってのメリット:", "- 文化的信用、地域・観客との接点、広報素材、実績活用の余地を整理して提示する。", "提案メール下書き:", f"- {project_name}の過去実績と関連資料をもとに、貴団体との協働可能性についてご相談したくご連絡しました。", "添付資料候補:", *evidence_lines],
+        "grant": ["申請書骨子:", f"- 事業名: {project_name}", "- 目的: 過去実績と記録資料を根拠に、文化的・公共的意義を持つ事業として申請する。", "- 社会的意義: 資料根拠に沿って明確化する。", "- 実施内容: Eligible Evidence の活動実績、提案書、報告書、写真記録を組み合わせて説明する。", "- 成果指標: 参加者数、連携先数、制作物、記録資料、広報到達、次年度展開を候補とする。", "必要添付資料候補:", *evidence_lines],
+        "documents": ["資料構成案:", "1. 表紙: 事業名、目的、対象者", "2. 背景: なぜ今必要か", "3. 実績: 根拠資料に基づく過去活動", "4. 提案内容: 何を実施するか", "5. 体制・スケジュール", "6. 参考資料・証拠資料一覧", "引用・図版候補:", *evidence_lines],
+        "presentation": ["スライド構成案:", "1. タイトル: 事業名と一言価値", "2. 背景: なぜこの事業が必要か", "3. 実績: 過去資料から見える強み", "4. 企画: 今回実施する内容", "5. 対象者・届け方", "6. 期待成果", "7. 協力・支援のお願い", "8. 参考資料", "図版候補:", *media_bullets(evidence + related), "根拠資料:", *evidence_lines],
+        "decision": ["意思決定メモ:", f"- 判断対象: {request or project_name}", "- 推奨: Eligible Evidence がある範囲で進め、不足部分は推測として扱う。", "判断材料:", *evidence_lines, "リスク:", "- Evidence が不足している領域は、申請・営業・広報の確定文に使う前に追加確認が必要。"],
     }
+    body = common[task_name]
+    body.extend(["不足資料・追加検索候補:", *missing])
+    return {"task": task_name, "label": TASKS[task_name]["label"], "body": body}
 
 
 def evidence_bullets(items: list[dict[str, Any]]) -> list[str]:
     if not items:
         return ["- 現在のインデックスでは直接使える根拠資料が不足している。"]
-    bullets = []
-    for item in items:
-        category = item.get("ai_category") or "unknown"
-        media_type = item.get("media_type_candidate") or "unknown"
-        bullets.append(f"- {item.get('file_name', '')} [{category}/{media_type}] `{item.get('full_path', '')}`")
-    return bullets
+    return [f"- {item.get('file_name', '')} [{item.get('ai_category') or 'unknown'}/{item.get('media_type_candidate') or 'unknown'}] `{item.get('full_path', '')}`" for item in items]
 
 
 def media_bullets(items: list[dict[str, Any]]) -> list[str]:
-    media = [
-        item for item in items
-        if item.get("media_type_candidate") in {"image", "video", "presentation", "document", "spreadsheet"}
-    ][:6]
-    if not media:
-        return ["- 画像・動画・提案資料などの素材候補は追加検索が必要。"]
-    return evidence_bullets(media)
+    media = [item for item in items if item.get("media_type_candidate") in {"image", "video", "presentation", "document", "spreadsheet"}][:6]
+    return evidence_bullets(media) if media else ["- 画像・動画・提案資料などの素材候補は追加検索が必要。"]
 
 
 def missing_evidence(profile: dict[str, Any] | None, evidence: list[dict[str, Any]]) -> list[str]:
     needs = profile.get("evidence_needs") if profile else []
     if not needs:
         return ["- 目的別に不足資料を追加検索する。"]
-    evidence_text = " ".join(
-        [
-            str(item.get("file_name", "")) + " " + " ".join(map(str, item.get("generated_tags") or []))
-            for item in evidence
-        ]
-    )
-    missing = [
-        f"- {need}"
-        for need in needs
-        if str(need).casefold() not in evidence_text.casefold()
-    ]
+    evidence_text = " ".join(str(item.get("file_name", "")) + " " + " ".join(map(str, item.get("generated_tags") or [])) for item in evidence)
+    missing = [f"- {need}" for need in needs if str(need).casefold() not in evidence_text.casefold()]
     return missing or ["- 現時点の主要な証拠資料は一通り候補化されている。"]
 
 
 def render_draft(draft: dict[str, Any]) -> str:
-    lines = [f"### {draft['label']}", ""]
-    lines.extend(draft["body"])
-    lines.append("")
-    return "\n".join(lines)
+    return "\n".join([f"### {draft['label']}", "", *draft["body"], ""])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,10 @@ set -e
 ENV_DIR="$HOME/.config/kio-node"
 ENV_PATH="$ENV_DIR/env"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON_BIN="${NAKADACHI_PYTHON:-/opt/homebrew/bin/python3}"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
 mkdir -p "$ENV_DIR"
 
 if [ ! -f "$ENV_PATH" ]; then
@@ -52,7 +56,7 @@ source "$ENV_PATH"
 set +a
 
 cd "$PROJECT_DIR"
-python3 -B scripts/sync_ceo_dashboard_asana.py
+"$PYTHON_BIN" -B scripts/sync_ceo_dashboard_asana.py
 
 echo "CEO Dashboard Asana connection verified."
 echo "Token stored only in: $ENV_PATH"

@@ -1,0 +1,83 @@
+{
+  "generated_at": "2026-08-22 07:11 JST",
+  "mode": "v0.1 bootstrap snapshot",
+  "summary": {
+    "decisions": 2,
+    "overdue": 0,
+    "opportunities": 3,
+    "risks": 2
+  },
+  "sections": {
+    "decisions": [
+      {
+        "title": "KIO Web再構築：現行WordPressを基盤に段階改修する方針",
+        "priority": "high",
+        "label": "方針確定",
+        "source": "CEO/AI Chief of Staff"
+      },
+      {
+        "title": "AI基盤：新規Agent増設より既存経路の簡素化を優先",
+        "priority": "high",
+        "label": "運用方針",
+        "source": "KIO AI OS"
+      }
+    ],
+    "projects": [
+      {
+        "title": "KIO公式Webサイト再構築",
+        "status": "設計・棚卸し",
+        "owner": "伏屋",
+        "priority": "medium",
+        "label": "進行中"
+      },
+      {
+        "title": "Osaka Fringe 2026",
+        "status": "開催準備",
+        "priority": "high",
+        "label": "重要"
+      },
+      {
+        "title": "Audience App / AVR",
+        "status": "継続開発",
+        "priority": "medium",
+        "label": "技術"
+      }
+    ],
+    "sales": [
+      {
+        "title": "学校公演の営業導線をAI支援対象として強化",
+        "status": "自動化設計前",
+        "priority": "high",
+        "label": "成長機会"
+      }
+    ],
+    "grants": [
+      {
+        "title": "KIO固有の実績・強み・社会的価値を申請に再利用できる形で整理",
+        "status": "既存資料を直接参照する方針",
+        "priority": "high",
+        "label": "重点"
+      }
+    ],
+    "brand": [
+      {
+        "title": "Web / SNS / PR /営業を一体の外部接点として再設計",
+        "status": "Webから着手",
+        "priority": "high",
+        "label": "重点"
+      }
+    ],
+    "risks": [
+      {
+        "title": "AIの保存先・中間レイヤー・専門Agentを増やしすぎない",
+        "severity": "high",
+        "label": "設計リスク"
+      },
+      {
+        "title": "Dashboard自体を新しい正本にしない",
+        "severity": "medium",
+        "label": "運用ルール"
+      }
+    ]
+  }
+}

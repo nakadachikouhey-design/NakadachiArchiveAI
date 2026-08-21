@@ -15,18 +15,24 @@ ENV_DIR="$HOME/.config/kio-node"
 ENV_PATH="$ENV_DIR/env"
 WRAPPER_PATH="$BIN_DIR/kio_local_node_cycle.sh"
 PLIST_PATH="$PLIST_DIR/com.kio.local-ai-node.plist"
+HYBRID_MIGRATION_MARKER="$STATE_DIR/hybrid_cloud_control_v1"
 
 mkdir -p "$BIN_DIR" "$LOG_DIR" "$STATE_DIR" "$PLIST_DIR" "$ENV_DIR"
 
 if [ ! -f "$ENV_PATH" ]; then
   /bin/cat > "$ENV_PATH" <<'ENV'
-# KIO Local AI Node v4 / Engineering Loop v2
+# KIO Local AI Node v5 / Hybrid Cloud Control
+# Cloud AI is the decision layer. The Mac mini monitors and executes allowlisted jobs.
 KIO_MONITORED_REPOS="nakadachikouhey-design/NakadachiArchiveAI"
 KIO_ACTION_MAX_RETRIES="3"
 KIO_RETRY_DELAY_SECONDS="10"
-KIO_AUTO_RETRY_GITHUB_ACTIONS="1"
-KIO_ENGINEERING_LOOP_ENABLED="1"
-KIO_ENGINEERING_AUTO_REPAIR="1"
+
+# Hybrid defaults: observe locally, but do not perform autonomous mutating actions.
+KIO_AUTO_RETRY_GITHUB_ACTIONS="0"
+KIO_ENGINEERING_LOOP_ENABLED="0"
+KIO_ENGINEERING_AUTO_REPAIR="0"
+
+# Deterministic repair capability remains available only when explicitly enabled.
 KIO_ENGINEERING_CODE_REPAIR_ENABLED="1"
 KIO_ENGINEERING_MAX_CODE_REPAIRS_PER_CYCLE="1"
 KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
@@ -43,6 +49,15 @@ else
   grep -q '^KIO_CEO_DASHBOARD_ENABLED=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_ENABLED="1"' >> "$ENV_PATH"
   grep -q '^KIO_CEO_DASHBOARD_REFRESH_SECONDS=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_REFRESH_SECONDS="1800"' >> "$ENV_PATH"
   chmod 600 "$ENV_PATH"
+fi
+
+# One-time migration from previous autonomous defaults to hybrid cloud control.
+# Preserve unrelated settings, including CEO Dashboard / Asana configuration.
+if [ ! -f "$HYBRID_MIGRATION_MARKER" ]; then
+  /usr/bin/sed -i '' 's/^KIO_AUTO_RETRY_GITHUB_ACTIONS=.*/KIO_AUTO_RETRY_GITHUB_ACTIONS="0"/' "$ENV_PATH" || true
+  /usr/bin/sed -i '' 's/^KIO_ENGINEERING_LOOP_ENABLED=.*/KIO_ENGINEERING_LOOP_ENABLED="0"/' "$ENV_PATH" || true
+  /usr/bin/sed -i '' 's/^KIO_ENGINEERING_AUTO_REPAIR=.*/KIO_ENGINEERING_AUTO_REPAIR="0"/' "$ENV_PATH" || true
+  touch "$HYBRID_MIGRATION_MARKER"
 fi
 
 /bin/cat > "$WRAPPER_PATH" <<WRAPPER
@@ -147,10 +162,11 @@ launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/com.kio.local-ai-node"
 
-echo "Installed KIO local AI node v4 / Engineering Loop v2: $PLIST_PATH"
+echo "Installed KIO local AI node v5 / Hybrid Cloud Control: $PLIST_PATH"
 echo "Cycle wrapper: $WRAPPER_PATH"
 echo "Runtime env: $ENV_PATH"
 echo "Heartbeat: $HOME/NakadachiArchiveAI/agent_state/heartbeat.json"
+echo "Autonomous CI retry / engineering repair defaults: disabled"
 echo "CEO Dashboard refresh: every 30 minutes when ASANA_ACCESS_TOKEN is configured"
 if grep -q '^ASANA_ACCESS_TOKEN=""' "$ENV_PATH"; then
   echo "ACTION REQUIRED ONCE: zsh scripts/configure_ceo_dashboard_asana.sh"

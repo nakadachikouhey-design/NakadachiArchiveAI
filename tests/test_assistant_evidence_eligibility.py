@@ -33,7 +33,7 @@ class AssistantEvidenceEligibilityTests(unittest.TestCase):
             }
         )
         self.assertFalse(eligible)
-        self.assertEqual(reason, "temporary_or_working_file")
+        self.assertEqual(reason, "temporary_preview_or_working_file")
 
     def test_business_master_spreadsheet_is_evidence(self) -> None:
         eligible, reason = assistant_ai.evidence_eligibility(

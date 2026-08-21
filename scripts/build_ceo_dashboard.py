@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build KIO CEO Dashboard display JSON without creating a new source of truth.
+"""Refresh KIO CEO Dashboard display JSON without creating a new source of truth.
 
-v0.1 reads a small snapshot definition and calculates dashboard metrics.
-Future source adapters may populate the same section schema from Asana, Gmail,
-Slack, Drive, and GitHub. The dashboard file itself remains a disposable view.
+The dashboard JSON is a disposable read model. v0.1 recalculates its metrics
+in place; future adapters may replace its sections from Asana, Gmail, Slack,
+Drive, and GitHub before this refresh step.
 """
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = ROOT / "dashboard" / "data" / "dashboard_source.json"
-DEFAULT_OUTPUT = ROOT / "dashboard" / "data" / "dashboard.json"
+DEFAULT_PATH = ROOT / "dashboard" / "data" / "dashboard.json"
 SECTION_KEYS = ("decisions", "projects", "sales", "grants", "brand", "risks")
 
 
@@ -27,7 +26,7 @@ def load_json(path: Path) -> dict:
     return data
 
 
-def build(source: dict) -> dict:
+def refresh(source: dict) -> dict:
     sections = source.get("sections", {})
     normalized = {key: list(sections.get(key, [])) for key in SECTION_KEYS}
 
@@ -61,15 +60,12 @@ def build(source: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--path", type=Path, default=DEFAULT_PATH)
     args = parser.parse_args()
 
-    source = load_json(args.input)
-    output = build(source)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"CEO Dashboard generated: {args.output}")
+    output = refresh(load_json(args.path))
+    args.path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"CEO Dashboard refreshed: {args.path}")
     return 0
 
 

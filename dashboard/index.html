@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KIO CEO Dashboard v0.2</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f6f7f9; --panel:#fff; --text:#16181d; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --warn:#b45309; --danger:#b91c1c; --ok:#047857; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#111318; --panel:#191c22; --text:#f3f4f6; --muted:#9ca3af; --line:#30343c; --accent:#60a5fa; --warn:#f59e0b; --danger:#f87171; --ok:#34d399; } }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:1180px; margin:0 auto; padding:28px 20px 56px; }
+    header { display:flex; gap:16px; justify-content:space-between; align-items:flex-end; margin-bottom:22px; }
+    h1 { margin:0; font-size:28px; }
+    .sub { color:var(--muted); font-size:14px; margin-top:6px; }
+    .status { font-size:13px; color:var(--muted); text-align:right; }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+    .metric,.panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; }
+    .metric { padding:16px; }
+    .metric b { display:block; font-size:26px; margin-top:4px; }
+    .metric span { color:var(--muted); font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .panel { padding:18px; }
+    .panel h2 { margin:0 0 12px; font-size:17px; }
+    ul { margin:0; padding:0; list-style:none; }
+    li { padding:10px 0; border-top:1px solid var(--line); }
+    li:first-child { border-top:0; padding-top:0; }
+    .row { display:flex; gap:10px; justify-content:space-between; align-items:flex-start; }
+    .title { font-weight:600; }
+    .title a { color:inherit; text-decoration:none; }
+    .title a:hover { color:var(--accent); text-decoration:underline; }
+    .meta { color:var(--muted); font-size:12px; margin-top:3px; }
+    .badge { white-space:nowrap; border:1px solid var(--line); border-radius:999px; padding:3px 8px; font-size:11px; }
+    .high { color:var(--danger); }
+    .medium { color:var(--warn); }
+    .low { color:var(--ok); }
+    .empty { color:var(--muted); font-size:13px; padding:8px 0; }
+    .note { margin-top:18px; color:var(--muted); font-size:12px; }
+    @media (max-width:800px){ .metrics{grid-template-columns:repeat(2,1fr)} .grid{grid-template-columns:1fr} header{align-items:flex-start;flex-direction:column}.status{text-align:left} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>KIO CEO Dashboard</h1><div class="sub">判断・機会・停滞だけを見る経営画面 v0.2</div></div>
+    <div class="status" id="status">読み込み中…</div>
+  </header>
+  <section class="metrics" id="metrics"></section>
+  <section class="grid" id="panels"></section>
+  <div class="note">Asanaのタスク・期限・担当を直接読み取るRead Modelです。Dashboard自体は正本ではなく、営業・助成金・広報は各アダプタ接続まで既存スナップショットを表示します。</div>
+</main>
+<script>
+const PANEL_ORDER = [
+  ['decisions','今日のCEO判断事項'],['projects','進行中案件'],['sales','営業'],['grants','助成金'],['brand','広報・ブランド'],['risks','リスク・停滞']
+];
+function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function itemHtml(x){
+  const p = x.priority || x.severity || 'low';
+  const meta = [x.owner,x.due,x.source,x.status].filter(Boolean).join(' · ');
+  const title = x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>` : esc(x.title);
+  return `<li><div class="row"><div><div class="title">${title}</div>${meta?`<div class="meta">${esc(meta)}</div>`:''}</div><span class="badge ${esc(p)}">${esc(x.label||p)}</span></div></li>`;
+}
+function render(data){
+  document.getElementById('status').textContent = `更新: ${data.generated_at || '不明'} / ${data.mode || 'snapshot'}`;
+  const counts = data.summary || {};
+  const metricDefs = [['decisions','判断待ち'],['overdue','期限超過'],['opportunities','機会'],['risks','要注意表示']];
+  document.getElementById('metrics').innerHTML = metricDefs.map(([k,l])=>`<div class="metric"><span>${l}</span><b>${Number(counts[k]||0)}</b></div>`).join('');
+  document.getElementById('panels').innerHTML = PANEL_ORDER.map(([key,label])=>{
+    const items=(data.sections&&data.sections[key])||[];
+    return `<article class="panel"><h2>${label}</h2>${items.length?`<ul>${items.map(itemHtml).join('')}</ul>`:`<div class="empty">現在、表示対象はありません。</div>`}</article>`;
+  }).join('');
+}
+fetch('./data/dashboard.json',{cache:'no-store'})
+  .then(r=>{if(!r.ok) throw new Error('data load failed'); return r.json();})
+  .then(render)
+  .catch(err=>{document.getElementById('status').textContent='データ読込エラー'; document.getElementById('panels').innerHTML=`<article class="panel"><h2>接続状態</h2><div class="empty">dashboard/data/dashboard.json を生成してください。</div></article>`; console.error(err);});
+</script>
+</body>
+</html>

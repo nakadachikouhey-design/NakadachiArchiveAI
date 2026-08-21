@@ -21,29 +21,27 @@ mkdir -p "$BIN_DIR" "$LOG_DIR" "$STATE_DIR" "$PLIST_DIR" "$ENV_DIR"
 if [ ! -f "$ENV_PATH" ]; then
   /bin/cat > "$ENV_PATH" <<'ENV'
 # KIO Local AI Node v4 / Engineering Loop v2
-# Comma-separated GitHub repositories to monitor.
 KIO_MONITORED_REPOS="nakadachikouhey-design/NakadachiArchiveAI"
-
-# Local action retry policy.
 KIO_ACTION_MAX_RETRIES="3"
 KIO_RETRY_DELAY_SECONDS="10"
-
-# Re-run each failed GitHub Actions workflow at most once per run id.
 KIO_AUTO_RETRY_GITHUB_ACTIONS="1"
-
-# KIO Engineering Loop.
 KIO_ENGINEERING_LOOP_ENABLED="1"
 KIO_ENGINEERING_AUTO_REPAIR="1"
-
-# v2: deterministic YELLOW failures may receive a constrained Codex repair PR.
-# Codex runs with workspace-write only. The outer node owns commit/push/PR and never auto-merges.
 KIO_ENGINEERING_CODE_REPAIR_ENABLED="1"
 KIO_ENGINEERING_MAX_CODE_REPAIRS_PER_CYCLE="1"
 KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
-
-# Slack Incoming Webhook. Leave blank until configured.
 KIO_SLACK_WEBHOOK_URL=""
+
+# CEO Dashboard. Asana remains the source of truth.
+ASANA_ACCESS_TOKEN=""
+KIO_CEO_DASHBOARD_ENABLED="1"
+KIO_CEO_DASHBOARD_REFRESH_SECONDS="1800"
 ENV
+  chmod 600 "$ENV_PATH"
+else
+  grep -q '^ASANA_ACCESS_TOKEN=' "$ENV_PATH" || print '\n# CEO Dashboard Asana token (never commit)\nASANA_ACCESS_TOKEN=""' >> "$ENV_PATH"
+  grep -q '^KIO_CEO_DASHBOARD_ENABLED=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_ENABLED="1"' >> "$ENV_PATH"
+  grep -q '^KIO_CEO_DASHBOARD_REFRESH_SECONDS=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_REFRESH_SECONDS="1800"' >> "$ENV_PATH"
   chmod 600 "$ENV_PATH"
 fi
 
@@ -59,30 +57,26 @@ fi
 
 LOCK_DIR="$STATE_DIR/node_cycle.lock"
 LOCK_PID_FILE="\$LOCK_DIR/pid"
+DASHBOARD_STAMP="$STATE_DIR/ceo_dashboard_last_sync"
 
 acquire_lock() {
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
     echo "\$\$" > "\$LOCK_PID_FILE"
     return 0
   fi
-
   local existing_pid=""
   if [ -f "\$LOCK_PID_FILE" ]; then
     existing_pid="\$(cat "\$LOCK_PID_FILE" 2>/dev/null || true)"
   fi
-
   if [[ "\$existing_pid" == <-> ]] && kill -0 "\$existing_pid" 2>/dev/null; then
     echo "KIO local node cycle already running (pid=\$existing_pid); skipping overlapping run."
     exit 0
   fi
-
-  # A previous process died without cleanup. Remove only the stale lock and retry atomically.
   rm -rf "\$LOCK_DIR"
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
     echo "\$\$" > "\$LOCK_PID_FILE"
     return 0
   fi
-
   echo "KIO local node cycle lock could not be acquired; skipping run."
   exit 0
 }
@@ -93,14 +87,40 @@ cleanup_lock() {
   fi
 }
 
+refresh_ceo_dashboard_if_due() {
+  if [ "\${KIO_CEO_DASHBOARD_ENABLED:-1}" != "1" ] || [ -z "\${ASANA_ACCESS_TOKEN:-}" ]; then
+    return 0
+  fi
+  local interval="\${KIO_CEO_DASHBOARD_REFRESH_SECONDS:-1800}"
+  local now="\$(date +%s)"
+  local last="0"
+  if [ -f "\$DASHBOARD_STAMP" ]; then
+    last="\$(cat "\$DASHBOARD_STAMP" 2>/dev/null || echo 0)"
+  fi
+  if ! [[ "\$last" == <-> ]]; then last="0"; fi
+  if (( now - last < interval )); then return 0; fi
+
+  echo "Refreshing KIO CEO Dashboard from Asana..."
+  set +e
+  "$PYTHON_BIN" -B scripts/sync_ceo_dashboard_asana.py
+  local dashboard_status=\$?
+  set -e
+  if [ "\$dashboard_status" -eq 0 ]; then
+    echo "\$now" > "\$DASHBOARD_STAMP"
+  else
+    echo "CEO Dashboard refresh failed (status=\$dashboard_status); local node continues." >&2
+  fi
+  return 0
+}
+
 acquire_lock
 trap cleanup_lock EXIT INT TERM HUP
-
 cd "$PROJECT_DIR"
 set +e
 "$PYTHON_BIN" -B src/kio_node_agent.py cycle
 status=\$?
 set -e
+refresh_ceo_dashboard_if_due
 cleanup_lock
 trap - EXIT INT TERM HUP
 exit \$status
@@ -113,20 +133,12 @@ chmod +x "$WRAPPER_PATH"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>com.kio.local-ai-node</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$WRAPPER_PATH</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>600</integer>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$LOG_DIR/kio_local_node.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>$LOG_DIR/kio_local_node.err.log</string>
+  <key>Label</key><string>com.kio.local-ai-node</string>
+  <key>ProgramArguments</key><array><string>$WRAPPER_PATH</string></array>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$LOG_DIR/kio_local_node.out.log</string>
+  <key>StandardErrorPath</key><string>$LOG_DIR/kio_local_node.err.log</string>
 </dict>
 </plist>
 PLIST
@@ -139,3 +151,7 @@ echo "Installed KIO local AI node v4 / Engineering Loop v2: $PLIST_PATH"
 echo "Cycle wrapper: $WRAPPER_PATH"
 echo "Runtime env: $ENV_PATH"
 echo "Heartbeat: $HOME/NakadachiArchiveAI/agent_state/heartbeat.json"
+echo "CEO Dashboard refresh: every 30 minutes when ASANA_ACCESS_TOKEN is configured"
+if grep -q '^ASANA_ACCESS_TOKEN=""' "$ENV_PATH"; then
+  echo "ACTION REQUIRED ONCE: zsh scripts/configure_ceo_dashboard_asana.sh"
+fi

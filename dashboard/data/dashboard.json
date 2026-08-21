@@ -1,0 +1,126 @@
+{
+  "generated_at": "2026-08-22 07:31 JST",
+  "mode": "v0.2 Asana live read model",
+  "summary": {
+    "decisions": 1,
+    "overdue": 0,
+    "opportunities": 3,
+    "risks": 4
+  },
+  "sections": {
+    "decisions": [
+      {
+        "title": "【CEO判断】菊田ビル改修：契約・費用負担・精算条件",
+        "priority": "high",
+        "label": "CEO判断",
+        "source": "Asana",
+        "status": "判断待ち",
+        "url": "https://app.asana.com/1/1217093089887736/project/1217475284698028/task/1217572427050502"
+      }
+    ],
+    "projects": [
+      {
+        "title": "Osaka Fringe Production 1.0",
+        "status": "リリース前確認を8/22〜8/24へ再配置",
+        "priority": "high",
+        "label": "要確認",
+        "source": "Asana",
+        "due": "2026-08-22"
+      },
+      {
+        "title": "なにわ大賞・なにわ名物てれび",
+        "status": "未完了タスク継続",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-08-23"
+      },
+      {
+        "title": "イベント企画・実行",
+        "status": "未完了タスク継続",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-08-24"
+      },
+      {
+        "title": "大阪フリンジ／大阪文化万博",
+        "status": "直近90日ロードマップ整理へ更新",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-08-25"
+      },
+      {
+        "title": "AI Chief of Staff / PMO",
+        "status": "CEO判断・外部待ち・実行中を継続管理",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-09-04"
+      }
+    ],
+    "sales": [
+      {
+        "title": "学校公演の営業導線をAI支援対象として強化",
+        "status": "営業アダプタ未接続",
+        "priority": "high",
+        "label": "成長機会"
+      }
+    ],
+    "grants": [
+      {
+        "title": "KIO固有の実績・強み・社会的価値を申請に再利用できる形で整理",
+        "status": "助成金アダプタ未接続",
+        "priority": "high",
+        "label": "重点"
+      }
+    ],
+    "brand": [
+      {
+        "title": "Web / SNS / PR / 営業を一体の外部接点として再設計",
+        "status": "Webから着手",
+        "priority": "high",
+        "label": "重点"
+      }
+    ],
+    "risks": [
+      {
+        "title": "Public APIの個人情報露出を最終確認",
+        "priority": "high",
+        "label": "Blocker",
+        "source": "Asana",
+        "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
+        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143821060194"
+      },
+      {
+        "title": "Proposal機能の本番確認",
+        "priority": "high",
+        "label": "Blocker",
+        "source": "Asana",
+        "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
+        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143770990711"
+      },
+      {
+        "title": "Festival Registrationの本番確認",
+        "priority": "high",
+        "label": "Blocker",
+        "source": "Asana",
+        "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
+        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143669869987"
+      },
+      {
+        "title": "Opportunities公開確認",
+        "priority": "high",
+        "label": "Blocker",
+        "source": "Asana",
+        "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
+        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143821004518"
+      }
+    ]
+  }
+}

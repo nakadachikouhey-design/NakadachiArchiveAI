@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Refresh KIO CEO Dashboard display JSON without creating a new source of truth.
 
-The dashboard JSON is a disposable read model. v0.1 recalculates its metrics
-in place; future adapters may replace its sections from Asana, Gmail, Slack,
-Drive, and GitHub before this refresh step.
+The dashboard JSON is a disposable read model. Source adapters (currently
+Asana) replace the sections they own; this script only recalculates display
+metrics from the current read model.
 """
 from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -26,7 +26,8 @@ def load_json(path: Path) -> dict:
     return data
 
 
-def refresh(source: dict) -> dict:
+def refresh(source: dict, today: date | None = None) -> dict:
+    today = today or datetime.now(ZoneInfo("Asia/Tokyo")).date()
     sections = source.get("sections", {})
     normalized = {key: list(sections.get(key, [])) for key in SECTION_KEYS}
 
@@ -38,24 +39,26 @@ def refresh(source: dict) -> dict:
         for item in normalized[key]
         if item.get("priority") == "high" or item.get("label") in {"成長機会", "重点"}
     )
-    overdue = sum(
-        1
-        for key in SECTION_KEYS
-        for item in normalized[key]
-        if item.get("status") == "期限超過"
-    )
 
-    return {
-        "generated_at": datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M JST"),
-        "mode": source.get("mode", "v0.1 snapshot"),
-        "summary": {
-            "decisions": decisions,
-            "overdue": overdue,
-            "opportunities": opportunities,
-            "risks": risks,
-        },
-        "sections": normalized,
+    # In v0.2 risk rows retain their project name in `status`, so count overdue
+    # by label / due date rather than assuming status == '期限超過'.
+    overdue_ids = set()
+    for key in SECTION_KEYS:
+        for item in normalized[key]:
+            due = item.get("due")
+            if item.get("label") == "期限超過" or (due and date.fromisoformat(due) < today and item.get("source") == "Asana"):
+                overdue_ids.add(item.get("url") or f"{key}:{item.get('title')}:{due}")
+    overdue = max(len(overdue_ids), int(source.get("summary", {}).get("overdue", 0)))
+
+    source["generated_at"] = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M JST")
+    source["summary"] = {
+        "decisions": decisions,
+        "overdue": overdue,
+        "opportunities": opportunities,
+        "risks": risks,
     }
+    source["sections"] = normalized
+    return source
 
 
 def main() -> int:

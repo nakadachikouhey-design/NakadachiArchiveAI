@@ -1,23 +1,14 @@
 {
-  "generated_at": "2026-08-22 07:22 JST",
-  "mode": "v0.2 Asana connector snapshot",
+  "generated_at": "2026-08-22 07:31 JST",
+  "mode": "v0.2 Asana live read model",
   "summary": {
-    "decisions": 2,
-    "overdue": 12,
+    "decisions": 1,
+    "overdue": 0,
     "opportunities": 3,
-    "risks": 10
+    "risks": 4
   },
   "sections": {
     "decisions": [
-      {
-        "title": "【CEO判断】Cyujo請求問題：東先生との方針確認",
-        "priority": "high",
-        "label": "CEO判断",
-        "source": "Asana",
-        "due": "2026-08-19",
-        "status": "判断待ち",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217475284698028/task/1217572386405395"
-      },
       {
         "title": "【CEO判断】菊田ビル改修：契約・費用負担・精算条件",
         "priority": "high",
@@ -29,44 +20,44 @@
     ],
     "projects": [
       {
-        "title": "大阪フリンジ／大阪文化万博",
-        "status": "未完了 4件 / 期限超過 2件",
-        "priority": "high",
-        "label": "要確認",
-        "source": "Asana",
-        "due": "2026-08-07"
-      },
-      {
         "title": "Osaka Fringe Production 1.0",
-        "status": "未完了 14件 / 期限超過 8件",
+        "status": "リリース前確認を8/22〜8/24へ再配置",
         "priority": "high",
         "label": "要確認",
         "source": "Asana",
-        "due": "2026-08-08"
-      },
-      {
-        "title": "イベント企画・実行",
-        "status": "未完了 2件 / 期限超過 1件",
-        "priority": "high",
-        "label": "要確認",
-        "source": "Asana",
-        "due": "2026-08-14"
-      },
-      {
-        "title": "AI Chief of Staff / PMO",
-        "status": "未完了 14件 / 期限超過 1件",
-        "priority": "high",
-        "label": "要確認",
-        "source": "Asana",
-        "due": "2026-08-19"
+        "due": "2026-08-22"
       },
       {
         "title": "なにわ大賞・なにわ名物てれび",
-        "status": "未完了 3件",
+        "status": "未完了タスク継続",
         "priority": "medium",
         "label": "進行中",
         "source": "Asana",
         "due": "2026-08-23"
+      },
+      {
+        "title": "イベント企画・実行",
+        "status": "未完了タスク継続",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-08-24"
+      },
+      {
+        "title": "大阪フリンジ／大阪文化万博",
+        "status": "直近90日ロードマップ整理へ更新",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-08-25"
+      },
+      {
+        "title": "AI Chief of Staff / PMO",
+        "status": "CEO判断・外部待ち・実行中を継続管理",
+        "priority": "medium",
+        "label": "進行中",
+        "source": "Asana",
+        "due": "2026-09-04"
       }
     ],
     "sales": [
@@ -87,7 +78,7 @@
     ],
     "brand": [
       {
-        "title": "Web / SNS / PR /営業を一体の外部接点として再設計",
+        "title": "Web / SNS / PR / 営業を一体の外部接点として再設計",
         "status": "Webから着手",
         "priority": "high",
         "label": "重点"
@@ -95,96 +86,40 @@
     ],
     "risks": [
       {
-        "title": "エディンバラ国際連携提案の次のアクションを決める",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "owner": "中立公平",
-        "due": "2026-08-07",
-        "status": "大阪フリンジ／大阪文化万博",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217112836869270/task/1217095398973020"
-      },
-      {
         "title": "Public APIの個人情報露出を最終確認",
         "priority": "high",
-        "label": "期限超過",
+        "label": "Blocker",
         "source": "Asana",
-        "due": "2026-08-08",
         "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
         "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143821060194"
-      },
-      {
-        "title": "2026〜2030ロードマップの直近90日分をタスク化する",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "owner": "中立公平",
-        "due": "2026-08-10",
-        "status": "大阪フリンジ／大阪文化万博",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217112836869270/task/1217113171988996"
       },
       {
         "title": "Proposal機能の本番確認",
         "priority": "high",
-        "label": "期限超過",
+        "label": "Blocker",
         "source": "Asana",
-        "due": "2026-08-11",
         "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
         "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143770990711"
       },
       {
         "title": "Festival Registrationの本番確認",
         "priority": "high",
-        "label": "期限超過",
+        "label": "Blocker",
         "source": "Asana",
-        "due": "2026-08-12",
         "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
         "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143669869987"
       },
       {
         "title": "Opportunities公開確認",
         "priority": "high",
-        "label": "期限超過",
+        "label": "Blocker",
         "source": "Asana",
-        "due": "2026-08-12",
         "status": "Osaka Fringe Production 1.0",
+        "due": "2026-08-22",
         "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143821004518"
-      },
-      {
-        "title": "プロモーション素材を制作する",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "due": "2026-08-14",
-        "status": "イベント企画・実行",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217094584555870/task/1217112836652976"
-      },
-      {
-        "title": "Preview総合E2Eを実施",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "due": "2026-08-18",
-        "status": "Osaka Fringe Production 1.0",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143782495908"
-      },
-      {
-        "title": "運営マニュアル整備",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "due": "2026-08-19",
-        "status": "Osaka Fringe Production 1.0",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143491849600"
-      },
-      {
-        "title": "FAQ公開",
-        "priority": "high",
-        "label": "期限超過",
-        "source": "Asana",
-        "due": "2026-08-19",
-        "status": "Osaka Fringe Production 1.0",
-        "url": "https://app.asana.com/1/1217093089887736/project/1217143821018879/task/1217143491682502"
       }
     ]
   }

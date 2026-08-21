@@ -43,7 +43,19 @@ KIO_CODEX_REPAIR_TIMEOUT_SECONDS="1200"
 
 # Slack Incoming Webhook. Leave blank until configured.
 KIO_SLACK_WEBHOOK_URL=""
+
+# CEO Dashboard. Asana remains the source of truth; this token is read-only in practice.
+# Create an Asana personal access token and paste it here once. Never commit this file.
+ASANA_ACCESS_TOKEN=""
+KIO_CEO_DASHBOARD_ENABLED="1"
+KIO_CEO_DASHBOARD_REFRESH_SECONDS="1800"
 ENV
+  chmod 600 "$ENV_PATH"
+else
+  # Preserve the existing private env file and only append newly introduced keys.
+  grep -q '^ASANA_ACCESS_TOKEN=' "$ENV_PATH" || print '\n# CEO Dashboard Asana token (never commit)\nASANA_ACCESS_TOKEN=""' >> "$ENV_PATH"
+  grep -q '^KIO_CEO_DASHBOARD_ENABLED=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_ENABLED="1"' >> "$ENV_PATH"
+  grep -q '^KIO_CEO_DASHBOARD_REFRESH_SECONDS=' "$ENV_PATH" || print 'KIO_CEO_DASHBOARD_REFRESH_SECONDS="1800"' >> "$ENV_PATH"
   chmod 600 "$ENV_PATH"
 fi
 
@@ -59,6 +71,7 @@ fi
 
 LOCK_DIR="$STATE_DIR/node_cycle.lock"
 LOCK_PID_FILE="\$LOCK_DIR/pid"
+DASHBOARD_STAMP="$STATE_DIR/ceo_dashboard_last_sync"
 
 acquire_lock() {
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
@@ -76,7 +89,6 @@ acquire_lock() {
     exit 0
   fi
 
-  # A previous process died without cleanup. Remove only the stale lock and retry atomically.
   rm -rf "\$LOCK_DIR"
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
     echo "\$\$" > "\$LOCK_PID_FILE"
@@ -93,6 +105,40 @@ cleanup_lock() {
   fi
 }
 
+refresh_ceo_dashboard_if_due() {
+  if [ "\${KIO_CEO_DASHBOARD_ENABLED:-1}" != "1" ]; then
+    return 0
+  fi
+  if [ -z "\${ASANA_ACCESS_TOKEN:-}" ]; then
+    return 0
+  fi
+
+  local interval="\${KIO_CEO_DASHBOARD_REFRESH_SECONDS:-1800}"
+  local now="\$(date +%s)"
+  local last="0"
+  if [ -f "\$DASHBOARD_STAMP" ]; then
+    last="\$(cat "\$DASHBOARD_STAMP" 2>/dev/null || echo 0)"
+  fi
+  if ! [[ "\$last" == <-> ]]; then
+    last="0"
+  fi
+  if (( now - last < interval )); then
+    return 0
+  fi
+
+  echo "Refreshing KIO CEO Dashboard from Asana..."
+  set +e
+  "$PYTHON_BIN" -B scripts/sync_ceo_dashboard_asana.py
+  local dashboard_status=\$?
+  set -e
+  if [ "\$dashboard_status" -eq 0 ]; then
+    echo "\$now" > "\$DASHBOARD_STAMP"
+  else
+    echo "CEO Dashboard refresh failed (status=\$dashboard_status); local node continues." >&2
+  fi
+  return 0
+}
+
 acquire_lock
 trap cleanup_lock EXIT INT TERM HUP
 
@@ -101,6 +147,11 @@ set +e
 "$PYTHON_BIN" -B src/kio_node_agent.py cycle
 status=\$?
 set -e
+
+# Dashboard refresh is deliberately subordinate to the existing node cycle.
+# A failed Asana read must never stop Engineering Loop / heartbeat processing.
+refresh_ceo_dashboard_if_due
+
 cleanup_lock
 trap - EXIT INT TERM HUP
 exit \$status
@@ -139,3 +190,7 @@ echo "Installed KIO local AI node v4 / Engineering Loop v2: $PLIST_PATH"
 echo "Cycle wrapper: $WRAPPER_PATH"
 echo "Runtime env: $ENV_PATH"
 echo "Heartbeat: $HOME/NakadachiArchiveAI/agent_state/heartbeat.json"
+echo "CEO Dashboard refresh: every 30 minutes when ASANA_ACCESS_TOKEN is configured"
+if ! grep -q '^ASANA_ACCESS_TOKEN="\{0,1\}[^"[:space:]]\+' "$ENV_PATH"; then
+  echo "ACTION REQUIRED ONCE: set ASANA_ACCESS_TOKEN in $ENV_PATH"
+fi

@@ -155,37 +155,32 @@ def cycle() -> dict[str, Any]:
         'gh_available': gh_available(),
         'gh_authenticated': gh_ready,
         'processed': [],
-        'automation': automation.automation_cycle(execute_action_once, gh_ready),
+        'automation': {'status': 'pending'},
         'engineering_loop': {'status': 'pending'},
         'warnings': [],
     }
 
     if not heartbeat['gh_available']:
+        heartbeat['automation'] = {'status': 'skipped', 'reason': 'GitHub CLI unavailable'}
         heartbeat['engineering_loop'] = {'status': 'skipped', 'reason': 'GitHub CLI unavailable'}
         heartbeat['warnings'].append('GitHub CLI (gh) is unavailable; GitHub/PR monitoring is disabled.')
         write_heartbeat(heartbeat)
         return heartbeat
     if not gh_ready:
+        heartbeat['automation'] = {'status': 'skipped', 'reason': 'GitHub CLI unauthenticated'}
         heartbeat['engineering_loop'] = {'status': 'skipped', 'reason': 'GitHub CLI unauthenticated'}
         heartbeat['warnings'].append('gh is installed but not authenticated.')
         write_heartbeat(heartbeat)
         return heartbeat
 
-    try:
-        heartbeat['engineering_loop'] = engineering.engineering_loop_cycle(
-            automation.monitored_repos(), automation.slack_notify
-        )
-    except Exception as exc:
-        heartbeat['engineering_loop'] = {'status': 'failed', 'error': str(exc)}
-        heartbeat['warnings'].append(f'Engineering Loop: {exc}')
-        automation.slack_notify(f'🚨 KIO Engineering Loop: 例外が発生しました: {exc}')
-
+    # Cloud-issued commands have priority over local maintenance. This keeps
+    # lightweight requests such as repo_status responsive even when a local
+    # file change would otherwise trigger a long full archive refresh.
     try:
         issues = list_agent_issues()
     except Exception as exc:
+        issues = []
         heartbeat['warnings'].append(str(exc))
-        write_heartbeat(heartbeat)
-        return heartbeat
 
     for issue in issues:
         task = parse_task(issue)
@@ -207,6 +202,23 @@ def cycle() -> dict[str, Any]:
             comment_and_close(int(issue['number']), safe_result)
         except Exception as exc:
             heartbeat['warnings'].append(f"Issue #{issue['number']}: {exc}")
+        # Persist command evidence before entering potentially long maintenance.
+        write_heartbeat(heartbeat)
+
+    try:
+        heartbeat['automation'] = automation.automation_cycle(execute_action_once, gh_ready)
+    except Exception as exc:
+        heartbeat['automation'] = {'status': 'failed', 'error': str(exc)}
+        heartbeat['warnings'].append(f'Automation: {exc}')
+
+    try:
+        heartbeat['engineering_loop'] = engineering.engineering_loop_cycle(
+            automation.monitored_repos(), automation.slack_notify
+        )
+    except Exception as exc:
+        heartbeat['engineering_loop'] = {'status': 'failed', 'error': str(exc)}
+        heartbeat['warnings'].append(f'Engineering Loop: {exc}')
+        automation.slack_notify(f'🚨 KIO Engineering Loop: 例外が発生しました: {exc}')
 
     write_heartbeat(heartbeat)
     return kio_json_safe.make_json_safe(heartbeat)

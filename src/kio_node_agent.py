@@ -18,6 +18,8 @@ OWNER_LOGIN = 'nakadachikouhey-design'
 REPO = 'nakadachikouhey-design/NakadachiArchiveAI'
 TITLE_PREFIX = '[KIO-AGENT]'
 DISPOSABLE_READ_MODELS = {'dashboard/data/dashboard.json'}
+HEAVY_MAINTENANCE_STATE = STATE_DIR / 'heavy_maintenance.json'
+DEFAULT_HEAVY_MAINTENANCE_INTERVAL_SECONDS = 21600
 
 ACTIONS = {
     'full_update': ['scripts/run_full_update.sh'],
@@ -160,6 +162,67 @@ def comment_and_close(number: int, result: dict[str, Any]) -> None:
             raise RuntimeError(close.stderr.strip() or 'gh issue close failed')
 
 
+def _heavy_maintenance_interval() -> int:
+    raw = os.environ.get('KIO_HEAVY_MAINTENANCE_INTERVAL_SECONDS', str(DEFAULT_HEAVY_MAINTENANCE_INTERVAL_SECONDS))
+    try:
+        return max(3600, int(raw))
+    except ValueError:
+        return DEFAULT_HEAVY_MAINTENANCE_INTERVAL_SECONDS
+
+
+def heavy_maintenance_cycle() -> dict[str, Any]:
+    interval = _heavy_maintenance_interval()
+    now_epoch = int(datetime.now().timestamp())
+    state = automation.read_json(HEAVY_MAINTENANCE_STATE, {})
+    try:
+        last_attempt = int(state.get('last_attempt_epoch', 0))
+    except (TypeError, ValueError):
+        last_attempt = 0
+    remaining = interval - (now_epoch - last_attempt)
+    if last_attempt and remaining > 0:
+        return {
+            'status': 'deferred',
+            'reason': 'heavy local maintenance is rate-limited',
+            'interval_seconds': interval,
+            'next_due_in_seconds': remaining,
+            'last_attempt_at': state.get('last_attempt_at'),
+        }
+
+    attempt_state = {
+        'last_attempt_epoch': now_epoch,
+        'last_attempt_at': now_iso(),
+        'interval_seconds': interval,
+    }
+    automation.write_json(HEAVY_MAINTENANCE_STATE, attempt_state)
+    result = automation.file_watch_cycle(execute_action_once)
+    attempt_state['last_result'] = kio_json_safe.make_json_safe(result)
+    attempt_state['finished_at'] = now_iso()
+    if result.get('status') in {'unchanged', 'baseline_created', 'changed'} and (result.get('refresh') or {}).get('status', 'ok') == 'ok':
+        attempt_state['last_success_epoch'] = now_epoch
+        attempt_state['last_success_at'] = attempt_state['finished_at']
+    automation.write_json(HEAVY_MAINTENANCE_STATE, attempt_state)
+    return result
+
+
+def lightweight_automation_cycle(gh_ready: bool) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if gh_ready:
+        try:
+            result['pr_monitor'] = automation.pr_monitor_cycle()
+        except Exception as exc:
+            result['pr_monitor'] = {'status': 'failed', 'error': str(exc)}
+            automation.slack_notify(f'🚨 KIO GitHub Monitor: PR監視処理で例外が発生しました: {exc}')
+    else:
+        result['pr_monitor'] = {'status': 'skipped', 'reason': 'GitHub CLI is unavailable or unauthenticated'}
+
+    try:
+        result['heavy_maintenance'] = heavy_maintenance_cycle()
+    except Exception as exc:
+        result['heavy_maintenance'] = {'status': 'failed', 'error': str(exc)}
+        automation.slack_notify(f'🚨 KIO Local Agent: 重いローカル保守処理で例外が発生しました: {exc}')
+    return result
+
+
 def cycle() -> dict[str, Any]:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     gh_ready = gh_authenticated()
@@ -189,9 +252,7 @@ def cycle() -> dict[str, Any]:
         write_heartbeat(heartbeat)
         return heartbeat
 
-    # Cloud-issued commands have priority over local maintenance. This keeps
-    # lightweight requests such as repo_status responsive even when a local
-    # file change would otherwise trigger a long full archive refresh.
+    # Cloud-issued commands always run before any local maintenance.
     try:
         issues = list_agent_issues()
     except Exception as exc:
@@ -218,14 +279,11 @@ def cycle() -> dict[str, Any]:
             comment_and_close(int(issue['number']), safe_result)
         except Exception as exc:
             heartbeat['warnings'].append(f"Issue #{issue['number']}: {exc}")
-        # Persist command evidence before entering potentially long maintenance.
         write_heartbeat(heartbeat)
 
-    try:
-        heartbeat['automation'] = automation.automation_cycle(execute_action_once, gh_ready)
-    except Exception as exc:
-        heartbeat['automation'] = {'status': 'failed', 'error': str(exc)}
-        heartbeat['warnings'].append(f'Automation: {exc}')
+    # Ten-minute cycles stay lightweight. Heavy file scanning/full_update is
+    # independently rate-limited (6h by default) and only refreshes on changes.
+    heartbeat['automation'] = lightweight_automation_cycle(gh_ready)
 
     try:
         heartbeat['engineering_loop'] = engineering.engineering_loop_cycle(

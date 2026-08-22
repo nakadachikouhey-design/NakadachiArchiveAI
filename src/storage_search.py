@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import os
 import unicodedata
 from pathlib import Path
@@ -10,6 +9,22 @@ import kio_node_automation as automation
 
 DEFAULT_MAX_RESULTS = 100
 MAX_RESULTS_CAP = 500
+
+# Local fallback search must remain broader than the archive index. In particular,
+# Final Cut / Logic / GarageBand packages are valid evidence sources even when the
+# normal archive scanner excludes them for performance reasons.
+TECHNICAL_EXCLUDE_NAMES = {
+    ".git",
+    ".DS_Store",
+    "node_modules",
+    "__pycache__",
+    ".Trash",
+    ".Trashes",
+    ".Spotlight-V100",
+    ".fseventsd",
+    ".TemporaryItems",
+    ".DocumentRevisions-V100",
+}
 
 
 def normalise(value: str) -> str:
@@ -35,8 +50,10 @@ def _unique_paths(paths: Iterable[Path]) -> list[Path]:
 def discover_storage_roots() -> tuple[list[Path], list[str], list[str]]:
     """Return configured roots plus currently mounted local/cloud storage roots.
 
-    This deliberately discovers the actual mount names at runtime so callers never
-    have to guess spellings such as Transcend/Trancend.
+    Runtime enumeration is intentional: callers should never have to guess a disk
+    spelling such as Transcend vs Trancend. Configured exclusions are returned only
+    so absolute NakadachiArchiveAI runtime/output paths can be pruned; production
+    media-package exclusions are not inherited by local fallback search.
     """
     configured, excludes, warnings = automation.configured_scan_roots()
     candidates: list[Path] = list(configured)
@@ -55,7 +72,6 @@ def discover_storage_roots() -> tuple[list[Path], list[str], list[str]]:
         except OSError as exc:
             warnings.append(f"Could not enumerate CloudStorage: {exc}")
 
-    # Keep common user roots as a last-resort fallback even if config was stale.
     for fallback in (Path.home() / "Documents", Path.home() / "Google Drive"):
         if fallback.exists():
             candidates.append(fallback)
@@ -65,17 +81,18 @@ def discover_storage_roots() -> tuple[list[Path], list[str], list[str]]:
 
 
 def _excluded(path: Path, excludes: list[str]) -> bool:
-    # Reuse project exclusion semantics while also accepting absolute prefixes.
-    if automation.excluded(path, excludes):
+    if path.name in TECHNICAL_EXCLUDE_NAMES:
         return True
+
+    # Only honor configured absolute/runtime exclusions. Named project/media
+    # exclusions such as "Final Cut Backups.localized" are intentionally ignored.
     path_text = str(path)
     for raw in excludes:
-        if not raw:
+        if not raw or not (raw.startswith("/") or raw.startswith("~")):
             continue
-        expanded = str(Path(os.path.expanduser(raw)))
-        if raw.startswith("/") or raw.startswith("~"):
-            if path_text == expanded or path_text.startswith(expanded.rstrip("/") + "/"):
-                return True
+        expanded = os.path.expanduser(raw)
+        if path_text == expanded or path_text.startswith(expanded.rstrip("/") + "/"):
+            return True
     return False
 
 
@@ -83,7 +100,6 @@ def _query_tokens(query: str) -> list[str]:
     query = query.strip()
     if not query:
         return []
-    # Preserve an exact phrase while also allowing whitespace-separated AND terms.
     parts = [part for part in query.split() if part]
     return [normalise(part) for part in parts] or [normalise(query)]
 
@@ -108,8 +124,9 @@ def search_local_storage(
 ) -> dict[str, Any]:
     """Search actual local/cloud storage without arbitrary shell execution.
 
-    Directory hits are returned before descending further so named project folders
-    are discoverable even when their contents use generic camera filenames.
+    The fallback searches directory names as well as files. Files with generic names
+    still match when a parent directory contains the query, so a project folder such
+    as "古い/防災博士" surfaces its IMG_0001.MOV material when extensions are filtered.
     """
     tokens = _query_tokens(query)
     if not tokens:
@@ -118,7 +135,7 @@ def search_local_storage(
     limit = max(1, min(int(max_results), MAX_RESULTS_CAP))
     roots, excludes, warnings = discover_storage_roots()
     extension_filter = {
-        ext.casefold() if ext.startswith(".") else f".{ext.casefold()}"
+        ext.casefold() if str(ext).startswith(".") else f".{str(ext).casefold()}"
         for ext in (extensions or [])
         if str(ext).strip()
     }
@@ -188,9 +205,14 @@ def search_local_storage(
                 if len(errors) < 30:
                     errors.append(f"{current}: {exc}")
 
-    # Prefer exact/name matches and shorter paths, which normally surface the
-    # project folder before nested package internals.
-    results.sort(key=lambda item: (0 if item.get("match_scope") == "name" else 1, len(item["path"]), item["path"]))
+    results.sort(
+        key=lambda item: (
+            0 if item.get("match_scope") == "name" else 1,
+            0 if item.get("type") == "directory" else 1,
+            len(item["path"]),
+            item["path"],
+        )
+    )
 
     return {
         "status": "ok" if not errors else "partial",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unicodedata
+from collections import deque
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -127,6 +128,10 @@ def search_local_storage(
     The fallback searches directory names as well as files. Files with generic names
     still match when a parent directory contains the query, so a project folder such
     as "古い/防災博士" surfaces its IMG_0001.MOV material when extensions are filtered.
+
+    Traversal is breadth-first by design. Project folders near a storage root must be
+    discovered before the search descends into large Final Cut/Logic/GarageBand
+    packages whose many matching media files could otherwise consume the result cap.
     """
     tokens = _query_tokens(query)
     if not tokens:
@@ -149,9 +154,9 @@ def search_local_storage(
         if len(results) >= limit:
             break
         visited_roots.append(str(root))
-        stack = [root]
-        while stack and len(results) < limit:
-            current = stack.pop()
+        queue = deque([root])
+        while queue and len(results) < limit:
+            current = queue.popleft()
             try:
                 with os.scandir(current) as entries:
                     for entry in entries:
@@ -179,7 +184,7 @@ def search_local_storage(
                                     "match_scope": match_scope,
                                     "source_root": str(root),
                                 })
-                            stack.append(path)
+                            queue.append(path)
                             continue
 
                         if not is_file or not include_files:

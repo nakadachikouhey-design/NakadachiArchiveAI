@@ -67,6 +67,27 @@ class StorageSearchTests(unittest.TestCase):
             self.assertIn(str(mov), paths)
             self.assertNotIn(str(pdf), paths)
 
+    def test_shallow_project_folder_beats_deep_package_media_result_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "Trancend"
+
+            # Reproduce the real failure: a sibling media package contains many
+            # matching files, while the desired project folder is only two levels
+            # below the storage root.
+            media = root / "The water" / "The water.fcpbundle" / "2021-01-03" / "Original Media"
+            media.mkdir(parents=True)
+            for index in range(1, 41):
+                (media / f"防災博士-{index}.wav").write_bytes(b"x")
+
+            target = root / "古い" / "防災博士"
+            target.mkdir(parents=True)
+
+            with mock.patch.object(storage_search, "discover_storage_roots", return_value=([root], [], [])):
+                result = storage_search.search_local_storage("防災博士", max_results=30)
+
+            paths = {item["path"] for item in result["results"]}
+            self.assertIn(str(target), paths)
+
 
 if __name__ == "__main__":
     unittest.main()

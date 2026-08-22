@@ -52,7 +52,7 @@ def _porcelain_path(line: str) -> str:
 
 def git_status() -> dict[str, Any]:
     branch = run(['git', 'branch', '--show-current']).stdout.strip()
-    all_changes = run(['git', 'status', '--porcelain']).stdout.strip().splitlines()
+    all_changes = [line for line in run(['git', 'status', '--porcelain']).stdout.splitlines() if line]
     blocking_changes = [line for line in all_changes if _porcelain_path(line) not in DISPOSABLE_READ_MODELS]
     generated_changes = [line for line in all_changes if _porcelain_path(line) in DISPOSABLE_READ_MODELS]
     remote = run(['git', 'remote', 'get-url', 'origin']).stdout.strip()

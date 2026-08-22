@@ -17,6 +17,7 @@ STATE_DIR = Path(os.path.expanduser('~/NakadachiArchiveAI/agent_state'))
 OWNER_LOGIN = 'nakadachikouhey-design'
 REPO = 'nakadachikouhey-design/NakadachiArchiveAI'
 TITLE_PREFIX = '[KIO-AGENT]'
+DISPOSABLE_READ_MODELS = {'dashboard/data/dashboard.json'}
 
 ACTIONS = {
     'full_update': ['scripts/run_full_update.sh'],
@@ -42,11 +43,26 @@ def gh_authenticated() -> bool:
     return gh_available() and run(['gh', 'auth', 'status'], cwd=Path.home()).returncode == 0
 
 
+def _porcelain_path(line: str) -> str:
+    path = line[3:] if len(line) >= 4 else line
+    if ' -> ' in path:
+        path = path.split(' -> ', 1)[1]
+    return path.strip()
+
+
 def git_status() -> dict[str, Any]:
     branch = run(['git', 'branch', '--show-current']).stdout.strip()
-    status = run(['git', 'status', '--porcelain']).stdout.strip().splitlines()
+    all_changes = run(['git', 'status', '--porcelain']).stdout.strip().splitlines()
+    blocking_changes = [line for line in all_changes if _porcelain_path(line) not in DISPOSABLE_READ_MODELS]
+    generated_changes = [line for line in all_changes if _porcelain_path(line) in DISPOSABLE_READ_MODELS]
     remote = run(['git', 'remote', 'get-url', 'origin']).stdout.strip()
-    return {'branch': branch, 'clean': not status, 'changes': status[:50], 'remote': remote}
+    return {
+        'branch': branch,
+        'clean': not blocking_changes,
+        'changes': blocking_changes[:50],
+        'generated_changes': generated_changes[:50],
+        'remote': remote,
+    }
 
 
 def github_sync() -> dict[str, Any]:

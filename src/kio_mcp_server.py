@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import kio_node_agent as node
+import storage_search
 
 SERVER_NAME = "kio-executive-agent"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 STATE_DIR = Path(os.path.expanduser("~/NakadachiArchiveAI/agent_state"))
 
 READ_TOOLS = {
@@ -27,6 +28,14 @@ READ_TOOLS = {
     },
     "pr_monitor_status": {
         "description": "Read the latest monitored GitHub pull-request state collected by the local node.",
+        "annotations": {"readOnlyHint": True, "destructiveHint": False},
+    },
+    "file_search": {
+        "description": (
+            "Search files and folders across configured archive roots, currently mounted /Volumes disks, "
+            "and macOS CloudStorage. Use this for locating real local material when archive-index search is "
+            "missing or a mount/path spelling is uncertain. Read-only; no arbitrary shell commands are run."
+        ),
         "annotations": {"readOnlyHint": True, "destructiveHint": False},
     },
 }
@@ -48,6 +57,27 @@ def _json_file(path: Path, default: Any) -> Any:
         return default
 
 
+def _read_tool_schema(name: str) -> dict[str, Any]:
+    if name == "file_search":
+        return {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+                "include_files": {"type": "boolean", "default": True},
+                "include_directories": {"type": "boolean", "default": True},
+                "extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional extension filter such as ['mov','mp4','m4v'].",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        }
+    return {"type": "object", "properties": {}, "additionalProperties": False}
+
+
 def tool_definitions() -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     for name, metadata in READ_TOOLS.items():
@@ -56,7 +86,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "name": name,
                 "title": name.replace("_", " ").title(),
                 "description": metadata["description"],
-                "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+                "inputSchema": _read_tool_schema(name),
                 "annotations": metadata["annotations"],
             }
         )
@@ -90,6 +120,27 @@ def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
 
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     arguments = arguments or {}
+
+    if name == "file_search":
+        allowed = {"query", "max_results", "include_files", "include_directories", "extensions"}
+        extras = sorted(set(arguments) - allowed)
+        if extras:
+            return _tool_result(
+                {"status": "rejected", "message": f"Unsupported arguments: {', '.join(extras)}"},
+                is_error=True,
+            )
+        query = str(arguments.get("query") or "").strip()
+        if not query:
+            return _tool_result({"status": "rejected", "message": "query is required"}, is_error=True)
+        result = storage_search.search_local_storage(
+            query,
+            max_results=int(arguments.get("max_results", 100)),
+            include_files=bool(arguments.get("include_files", True)),
+            include_directories=bool(arguments.get("include_directories", True)),
+            extensions=arguments.get("extensions"),
+        )
+        return _tool_result(result, is_error=result.get("status") == "rejected")
+
     if arguments:
         return _tool_result({"status": "rejected", "message": "This tool accepts no arguments."}, is_error=True)
 
@@ -140,7 +191,8 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                 "instructions": (
-                    "KIO Executive Agent exposes only fixed local-node operations. "
+                    "KIO Executive Agent exposes fixed local-node operations plus a read-only local file/folder search. "
+                    "The search auto-discovers mounted storage so mount-name spelling does not need to be guessed. "
                     "It never accepts arbitrary shell commands and does not auto-merge pull requests."
                 ),
             },

@@ -220,6 +220,19 @@ def summarize_pr(repo: str, pr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def meaningful_pr_state(summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    if summary is None:
+        return None
+    return {
+        'title': summary.get('title'),
+        'headRefName': summary.get('headRefName'),
+        'headRefOid': summary.get('headRefOid'),
+        'reviewDecision': summary.get('reviewDecision'),
+        'failed_checks': sorted(summary.get('failed_checks') or []),
+        'pending_checks': sorted(summary.get('pending_checks') or []),
+    }
+
+
 def failed_runs(repo: str, pr: dict[str, Any]) -> list[dict[str, Any]]:
     branch = str(pr.get('headRefName') or '')
     sha = str(pr.get('headRefOid') or '')
@@ -281,7 +294,7 @@ def pr_monitor_cycle() -> dict[str, Any]:
             key = f"{repo}#{summary['number']}"
             current['prs'][key] = summary
             old = previous.get('prs', {}).get(key)
-            if old != summary:
+            if meaningful_pr_state(old) != meaningful_pr_state(summary):
                 changes.append({'key': key, 'previous': old, 'current': summary})
             if summary['failed_checks']:
                 retries.extend(retry_failed_runs(repo, pr, retry_state))
@@ -294,13 +307,14 @@ def pr_monitor_cycle() -> dict[str, Any]:
 
     for change in changes:
         cur = change['current']
+        old = change.get('previous')
         if cur is None:
             slack_notify(f"✅ KIO GitHub Monitor: {change['key']} がOpen PR一覧から外れました（merge/closeの可能性）。")
-        elif cur['failed_checks']:
+        elif cur['failed_checks'] and sorted(cur['failed_checks']) != sorted((old or {}).get('failed_checks') or []):
             slack_notify(f"🚨 KIO GitHub Monitor: {change['key']} CI失敗: {', '.join(cur['failed_checks'])}\n{cur['url']}")
-        elif cur.get('reviewDecision') == 'APPROVED' and not cur['pending_checks']:
+        elif cur.get('reviewDecision') == 'APPROVED' and (old or {}).get('reviewDecision') != 'APPROVED' and not cur['pending_checks']:
             slack_notify(f"✅ KIO GitHub Monitor: {change['key']} 承認済み・CI待ちなし。\n{cur['url']}")
-        elif change.get('previous') is None:
+        elif old is None:
             slack_notify(f"ℹ️ KIO GitHub Monitor: 新しいPR {change['key']} {cur['title']}\n{cur['url']}")
 
     for item in retries:

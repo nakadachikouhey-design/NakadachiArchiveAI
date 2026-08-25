@@ -16,6 +16,10 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# Merge Trancend_AI_Index as catalog-only fallback metadata. Existing records
+# scanned directly from source files always win; source files are never changed.
+python3 -B src/merge_external_catalog.py
+
 # Historical Works Discovery reuses the same read-only scan roots and produces
 # evidence candidates for representative-work / career-history reconstruction.
 python3 -B src/historical_works_discovery.py
